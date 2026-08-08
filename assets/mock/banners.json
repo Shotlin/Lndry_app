@@ -1,0 +1,47 @@
+[
+  {
+    "id": "bnr_001",
+    "title": "First pickup is on us",
+    "subtitle": "Book your first order today",
+    "image_url": "",
+    "banner_type": "carousel",
+    "link_type": "category",
+    "link_value": "cat_wash",
+    "sort_order": 1,
+    "is_active": true,
+    "start_date": null,
+    "end_date": null,
+    "created_at": "2026-06-01T09:00:00.000Z",
+    "updated_at": "2026-06-01T09:00:00.000Z"
+  },
+  {
+    "id": "bnr_002",
+    "title": "20% off dry cleaning",
+    "subtitle": "Use code DRYCLEAN20",
+    "image_url": "",
+    "banner_type": "carousel",
+    "link_type": "category",
+    "link_value": "cat_dry_clean",
+    "sort_order": 2,
+    "is_active": true,
+    "start_date": null,
+    "end_date": null,
+    "created_at": "2026-06-01T09:00:00.000Z",
+    "updated_at": "2026-06-01T09:00:00.000Z"
+  },
+  {
+    "id": "bnr_003",
+    "title": "Free ironing",
+    "subtitle": "on orders over ₹499",
+    "image_url": "",
+    "banner_type": "carousel",
+    "link_type": "none",
+    "link_value": null,
+    "sort_order": 3,
+    "is_active": true,
+    "start_date": null,
+    "end_date": null,
+    "created_at": "2026-06-01T09:00:00.000Z",
+    "updated_at": "2026-06-01T09:00:00.000Z"
+  }
+]
