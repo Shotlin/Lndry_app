@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -184,6 +185,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         phone: prev.phone,
         otp: code,
         challengeId: prev.challengeId,
+        device: await _buildDeviceInfo(),
       );
 
       // Persist tokens
@@ -377,6 +379,54 @@ class AuthNotifier extends StateNotifier<AuthState> {
     ]);
   }
 
+  Future<String> _getOrCreateDeviceId() async {
+    var deviceId = _storage.getString('device_id');
+    if (deviceId == null || deviceId.isEmpty) {
+      deviceId = const Uuid().v4();
+      await _storage.saveString('device_id', deviceId);
+    }
+    return deviceId;
+  }
+
+  String get _platformString =>
+      Platform.isAndroid ? 'android' : Platform.isIOS ? 'ios' : 'android';
+
+  /// Real hardware model — not a marketing name (no "iPhone 15 Pro"-style
+  /// lookup table), but far more identifying than the OS string alone.
+  /// Best-effort: returns null if `device_info_plus` can't read it (e.g.
+  /// an unsupported platform), never blocks login.
+  Future<String?> _getDeviceModel() async {
+    try {
+      final deviceInfo = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        final info = await deviceInfo.androidInfo;
+        return '${info.manufacturer} ${info.model}'.trim();
+      }
+      if (Platform.isIOS) {
+        final info = await deviceInfo.iosInfo;
+        return info.utsname.machine;
+      }
+    } catch (_) {
+      // Best-effort only.
+    }
+    return null;
+  }
+
+  /// Sent with every OTP verification (unlike [_registerDeviceIfPossible]'s
+  /// FCM token registration, which silently no-ops without a working
+  /// Firebase config — see CLAUDE.md's "Known incomplete state") so the
+  /// admin dashboard's customer-detail "last active device" has something
+  /// to show even before push notifications are wired up for real.
+  Future<Map<String, dynamic>> _buildDeviceInfo() async {
+    final deviceId = await _getOrCreateDeviceId();
+    final model = await _getDeviceModel();
+    return {
+      'device_id': deviceId,
+      'platform': _platformString,
+      if (model != null && model.isNotEmpty) 'device_model': model,
+    };
+  }
+
   Future<void> _registerDeviceIfPossible() async {
     try {
       final messaging = FirebaseMessaging.instance;
@@ -384,20 +434,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final token = await messaging.getToken();
       if (token == null || token.isEmpty) return;
 
-      var deviceId = _storage.getString('device_id');
-      if (deviceId == null || deviceId.isEmpty) {
-        deviceId = const Uuid().v4();
-        await _storage.saveString('device_id', deviceId);
-      }
-
-      final platform = Platform.isAndroid
-          ? 'android'
-          : Platform.isIOS
-              ? 'ios'
-              : 'android';
+      final deviceId = await _getOrCreateDeviceId();
       await _repo.registerDevice(
         deviceId: deviceId,
-        platform: platform,
+        platform: _platformString,
         fcmToken: token,
       );
     } catch (_) {

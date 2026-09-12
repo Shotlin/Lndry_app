@@ -28,6 +28,12 @@ dependencies:
   # ── Realtime ──────────────────────────────────────────────────────────────
   socket_io_client: ^2.0.3+1
 
+  # ── Device info ───────────────────────────────────────────────────────────
+  # Real device model (e.g. "SM-S911B", an iOS hardware identifier) for the
+  # admin dashboard's customer-detail "last active device" — OS-level
+  # Platform.isAndroid/isIOS alone can't provide this.
+  device_info_plus: ^11.2.0
+
   # ── Local Storage ─────────────────────────────────────────────────────────
   shared_preferences: ^2.3.1
   flutter_secure_storage: ^9.2.2
