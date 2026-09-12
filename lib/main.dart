@@ -10,6 +10,7 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/app_colors.dart';
 import 'core/theme/tokens/breakpoints.dart';
 import 'core/services/storage_service.dart';
+import 'core/widgets/order_sync_listener.dart';
 import 'providers/theme_provider.dart';
 
 void main() async {
@@ -68,8 +69,10 @@ class LndryApp extends ConsumerWidget {
           themeMode: themeMode,
           routerConfig: router,
           builder: (context, child) {
-            return PendingAuthActionRunner(
-              child: child ?? const SizedBox.shrink(),
+            return OrderSyncListener(
+              child: PendingAuthActionRunner(
+                child: child ?? const SizedBox.shrink(),
+              ),
             );
           },
         );

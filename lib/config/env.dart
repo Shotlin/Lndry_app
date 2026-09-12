@@ -30,6 +30,16 @@ abstract final class Env {
     };
   }
 
+  // ── Socket.IO base URL ─────────────────────────────────────────────────────
+  /// Socket.IO connects to the server root, not the REST prefix — same
+  /// derivation as Lndry_vendor_app's `Env.socketBaseUrl`.
+  static String get socketBaseUrl {
+    const suffix = '/api/v1';
+    return baseUrl.endsWith(suffix)
+        ? baseUrl.substring(0, baseUrl.length - suffix.length)
+        : baseUrl;
+  }
+
   // ── Mock flag ─────────────────────────────────────────────────────────────
   /// When true, every repository resolves to the MockCustomerRepository.
   /// Only set this for visual/golden tests or offline UI review.

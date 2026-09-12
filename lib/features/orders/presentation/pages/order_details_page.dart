@@ -7,6 +7,7 @@ import '../../../../core/extensions/extensions.dart';
 import '../../../../core/network/network.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../../../models/models.dart';
+import '../../../../providers/order_sync_provider.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../../shared/widgets/shared_widgets.dart';
 import '../widgets/balance_payment_card.dart';
@@ -506,6 +507,16 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
     final theme = context.theme;
     final isDark = theme.brightness == Brightness.dark;
 
+    // Live sync: a socket event for THIS order (vendor accepted/rejected
+    // it, or proposed a reconciliation) reloads the page in place instead
+    // of the customer needing to pull-to-refresh or reopen the app — see
+    // OrderSyncListener, which publishes this provider.
+    ref.listen<OrderSyncEvent?>(orderSyncEventProvider, (previous, next) {
+      if (next != null && next.orderId == widget.orderId && !_isLoading) {
+        _loadOrderDetails();
+      }
+    });
+
     if (_isLoading) {
       return Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
@@ -595,6 +606,52 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                   ),
                 ],
                 Gap(AppSpacing.sectionGap.h),
+
+                // ── Schedule banner ─────────────────────────────────────────
+                // Shown at the very top, independent of whether the vendor
+                // lookup below succeeds, so the customer always sees which
+                // pickup slot they chose at checkout without having to hunt
+                // for it inside the timeline (which never showed it at all).
+                if (order.scheduledPickupAt != null) ...[
+                  AppCard.outlined(
+                    backgroundColor: AppColors.primaryContainer,
+                    borderColor: AppColors.primary.withValues(alpha: 0.2),
+                    child: Row(
+                      children: [
+                        Icon(
+                          order.isExpressPickup
+                              ? Icons.bolt_rounded
+                              : AppIcons.calendar,
+                          color: AppColors.primary,
+                          size: 22.r,
+                        ),
+                        Gap(AppSpacing.cardGap.h),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Your Pickup Schedule',
+                                style: AppTypography.labelSmall.copyWith(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Gap(2.h),
+                              Text(
+                                order.pickupSummary,
+                                style: AppTypography.titleSmall.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Gap(AppSpacing.md.h),
+                ],
 
                 // ── Vendor info with pickup/delivery estimates ─────────────
                 if (_vendor != null) ...[

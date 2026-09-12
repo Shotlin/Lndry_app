@@ -9,6 +9,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../cart/presentation/providers/cart_providers.dart';
 import '../../../checkout/presentation/pages/checkout_page.dart';
+import '../../../home/presentation/providers/home_providers.dart';
 import '../controllers/razorpay_payment_controller.dart';
 
 /// Display-only fallback for the "Pay Now (Advance)" figure while the real
@@ -388,6 +389,11 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
 
     final placedOrder = await repo.placeOrder(placeRequest);
     ref.read(cartStateProvider.notifier).clear();
+    // The Orders list/Home screen otherwise wouldn't know this order
+    // exists until their next pull-to-refresh — invalidate right away so
+    // it's there the moment the customer navigates back to either screen.
+    ref.invalidate(activeOrdersProvider);
+    ref.invalidate(pastOrdersProvider);
 
     if (mounted) {
       setState(() {
