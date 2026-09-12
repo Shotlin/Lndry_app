@@ -9,6 +9,7 @@ import '../../../../core/widgets/widgets.dart';
 import '../../../../models/models.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../../shared/widgets/service_icon.dart';
+import '../../../offers/presentation/providers/offers_providers.dart';
 import '../providers/cart_providers.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -40,6 +41,18 @@ class _CartPageState extends ConsumerState<CartPage> {
     _loadCart();
     _couponFocusNode.addListener(_onCouponFocusChange);
     _couponController.addListener(_onCouponTextChanged);
+    _maybeApplyPendingCoupon();
+  }
+
+  /// Picks up a coupon applied from the Coupons & Offers page (see
+  /// `pendingCouponCodeProvider`'s doc comment) so it's ready here without
+  /// the customer re-typing it.
+  Future<void> _maybeApplyPendingCoupon() async {
+    final pending = ref.read(pendingCouponCodeProvider);
+    if (pending == null || pending.isEmpty) return;
+    ref.read(pendingCouponCodeProvider.notifier).state = null;
+    _couponController.text = pending;
+    await _onApplyCoupon();
   }
 
   @override

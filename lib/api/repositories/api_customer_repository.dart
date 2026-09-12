@@ -872,6 +872,57 @@ class ApiCustomerRepository implements CustomerRepository {
     }
   }
 
+  @override
+  Future<List<CouponSummary>> getAvailableCoupons() async {
+    try {
+      final resp = await _dio.get(ApiEndpoints.couponsAvailable);
+      final list = _extractList(resp.data as Map<String, dynamic>);
+      return list.map((e) {
+        final c = e as Map<String, dynamic>;
+        return CouponSummary(
+          id: c['id'] as String,
+          code: c['code'] as String,
+          description: c['description'] as String?,
+          discountType: c['discountType'] as String? ?? 'FLAT',
+          discountValue: _toDouble(c['discountValue']) ?? 0,
+          minOrderAmount: _toDouble(c['minOrderAmount']) ?? 0,
+          maxDiscount: _toDouble(c['maxDiscount']),
+          validUntil: c['validUntil'] != null
+              ? DateTime.tryParse(c['validUntil'] as String)
+              : null,
+          terms: c['terms'] as String?,
+        );
+      }).toList();
+    } on ApiException {
+      return const [];
+    }
+  }
+
+  @override
+  Future<FirstTimeOfferResult> getActiveFirstTimeOffer() async {
+    try {
+      final resp = await _dio.get(ApiEndpoints.firstTimeOffersActive);
+      final data = _extractData(resp.data as Map<String, dynamic>);
+      final tiersJson = data['tiers'] as List<dynamic>? ?? const [];
+      return FirstTimeOfferResult(
+        eligible: data['eligible'] as bool? ?? false,
+        tiers: tiersJson.map((t) {
+          final tier = t as Map<String, dynamic>;
+          return CartMilestoneTier(
+            id: tier['id'] as String,
+            name: tier['name'] as String,
+            minOrderAmount: _toDouble(tier['minOrderAmount']) ?? 0,
+            rewardType: tier['rewardType'] as String,
+            rewardValue: _toDouble(tier['rewardValue']),
+            maxDiscount: _toDouble(tier['maxDiscount']),
+          );
+        }).toList(),
+      );
+    } on ApiException {
+      return const FirstTimeOfferResult(eligible: false);
+    }
+  }
+
   // ── User Stats ─────────────────────────────────────────────────────────────
 
   @override

@@ -697,6 +697,52 @@ class MockCustomerRepository implements CustomerRepository {
     ];
   }
 
+  @override
+  Future<List<CouponSummary>> getAvailableCoupons() async {
+    await _delay();
+    return [
+      CouponSummary(
+        id: 'mock-coupon-1',
+        code: 'LNDRY20',
+        description: 'Flat 20% off on your order',
+        discountType: 'PERCENTAGE',
+        discountValue: 20,
+        minOrderAmount: 199,
+        maxDiscount: 100,
+        validUntil: DateTime.now().add(const Duration(days: 30)),
+        terms: 'Valid on orders above ₹199. Maximum discount ₹100.',
+      ),
+      CouponSummary(
+        id: 'mock-coupon-2',
+        code: 'FLAT50',
+        description: 'Flat ₹50 off',
+        discountType: 'FLAT',
+        discountValue: 50,
+        minOrderAmount: 299,
+        validUntil: DateTime.now().add(const Duration(days: 15)),
+        terms: 'Valid on orders above ₹299.',
+      ),
+    ];
+  }
+
+  @override
+  Future<FirstTimeOfferResult> getActiveFirstTimeOffer() async {
+    await _delay();
+    return const FirstTimeOfferResult(
+      eligible: true,
+      tiers: [
+        CartMilestoneTier(
+          id: 'mock-fto-1',
+          name: '15% off your first order',
+          minOrderAmount: 0,
+          rewardType: 'PERCENTAGE_DISCOUNT',
+          rewardValue: 15,
+          maxDiscount: 150,
+        ),
+      ],
+    );
+  }
+
   // ── User Stats (mock) ───────────────────────────────────────────────────
 
   @override

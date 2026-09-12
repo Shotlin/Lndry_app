@@ -48,6 +48,7 @@ abstract final class AppRoutes {
   static const String myReviews = '/profile/reviews';
   static const String settings = '/profile/settings';
   static const String help = '/profile/help';
+  static const String offers = '/profile/offers';
 }
 
 /// LNDRY Route Name Constants (for named navigation via context.goNamed).
@@ -84,4 +85,5 @@ abstract final class AppRouteNames {
   static const String myReviews = 'my-reviews';
   static const String settings = 'settings';
   static const String help = 'help';
+  static const String offers = 'offers';
 }

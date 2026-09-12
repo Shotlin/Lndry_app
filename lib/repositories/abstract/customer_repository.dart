@@ -138,6 +138,14 @@ abstract interface class CustomerRepository {
   /// (usage limit reached, wrong segment, etc).
   Future<List<CartMilestoneTier>> getActiveCartMilestoneTiers();
 
+  /// Coupons the current customer can currently use (targeting-eligible),
+  /// for the dedicated Coupons & Offers page.
+  Future<List<CouponSummary>> getAvailableCoupons();
+
+  /// Whether the current customer still qualifies for a first-order offer,
+  /// and which reward tiers are active — for the same Offers page.
+  Future<FirstTimeOfferResult> getActiveFirstTimeOffer();
+
   // ── Payments ──────────────────────────────────────────────────────────────
   /// Create a Razorpay payment order for an existing order or order draft.
   Future<PaymentOrderResult> createPaymentOrder({
@@ -512,6 +520,52 @@ class CartMilestoneTier {
   /// literal `{amount}` placeholder is the backend's, substituted client-side.
   final String? messageBefore;
   final String? messageAfter;
+}
+
+/// One coupon from GET /coupons/available — already filtered server-side to
+/// ones this customer is currently eligible for (targeting + per-user usage
+/// limit), but NOT filtered by current cart total, so it can still fail a
+/// [CouponValidationResult] check (e.g. below `minOrderAmount`).
+class CouponSummary {
+  const CouponSummary({
+    required this.id,
+    required this.code,
+    this.description,
+    required this.discountType,
+    required this.discountValue,
+    this.minOrderAmount = 0,
+    this.maxDiscount,
+    this.validUntil,
+    this.terms,
+  });
+
+  final String id;
+  final String code;
+  final String? description;
+
+  /// 'PERCENTAGE' or 'FLAT'.
+  final String discountType;
+  final double discountValue;
+  final double minOrderAmount;
+  final double? maxDiscount;
+  final DateTime? validUntil;
+  final String? terms;
+
+  /// e.g. "20% off" or "Flat ₹50 off".
+  String get discountSummary => discountType == 'PERCENTAGE'
+      ? '${discountValue.toStringAsFixed(discountValue.truncateToDouble() == discountValue ? 0 : 1)}% off'
+      : 'Flat ₹${discountValue.toStringAsFixed(discountValue.truncateToDouble() == discountValue ? 0 : 1)} off';
+}
+
+/// Result of GET /first-time-offers/active — whether THIS customer still
+/// qualifies (never placed a prior order) and, if so, which reward tiers
+/// are active platform-wide right now. Purely informational: unlike a
+/// coupon, there's no code to apply — it auto-applies at checkout.
+class FirstTimeOfferResult {
+  const FirstTimeOfferResult({required this.eligible, this.tiers = const []});
+
+  final bool eligible;
+  final List<CartMilestoneTier> tiers;
 }
 
 // ── Request DTOs (no freezed needed for simple request objects) ───────────────

@@ -15,6 +15,7 @@ import '../../../../shared/widgets/domain_cards.dart';
 import '../../../../shared/widgets/premium_3d_icon.dart';
 import '../../../../shared/widgets/shared_widgets.dart';
 import '../../../address/location_capture_service.dart';
+import '../../../offers/presentation/providers/offers_providers.dart';
 import '../providers/home_providers.dart';
 import '../widgets/location_capture_sheet.dart';
 
@@ -2223,70 +2224,89 @@ class _ServicePill extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// ISSUE 4: Special Offers Section (now tappable)
+// ISSUE 4: Special Offers Section — real coupons from GET /coupons/available,
+// replacing the previous hardcoded IRONFREE/DRYCLEAN20 cards (which weren't
+// backed by any real coupon in the backend). Hidden entirely when there are
+// no eligible coupons right now rather than showing an empty heading.
 // ═════════════════════════════════════════════════════════════════════════════
 
-class _SpecialOffersSection extends StatelessWidget {
+class _SpecialOffersSection extends ConsumerWidget {
   const _SpecialOffersSection();
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: 20.w),
-          child: Text(
-            'Special offers',
-            style: AppTypography.titleLarge.copyWith(
-              fontWeight: FontWeight.w700,
-              color: AppColors.textBlack,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final couponsAsync = ref.watch(availableCouponsProvider);
+
+    return couponsAsync.maybeWhen(
+      data: (coupons) {
+        if (coupons.isEmpty) return const SizedBox.shrink();
+        final shown = coupons.take(5).toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20.w),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Special offers',
+                      style: AppTypography.titleLarge.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textBlack,
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => context.push(AppRoutes.offers),
+                    child: Text(
+                      'View all',
+                      style: AppTypography.labelMedium
+                          .copyWith(color: AppColors.primary),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ),
-        const Gap(12),
-        SizedBox(
-          height: 100.h,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.symmetric(horizontal: 20.w),
-            clipBehavior: Clip.none,
-            children: [
-              _SpecialOfferCard(
-                title: 'Free ironing',
-                subtitle: 'over ₹499',
-                code: 'IRONFREE',
-                icon: Icons.card_giftcard_rounded,
-                tone: Premium3DIconTone.purple,
-                onTap: () => _showOfferDetailsSheet(
-                  context,
-                  title: 'Free Ironing',
-                  description:
-                      'Get free ironing on all orders above ₹499. No coupon needed — discount applied automatically at checkout.',
-                  code: 'IRONFREE',
-                ),
+            const Gap(12),
+            SizedBox(
+              height: 100.h,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.symmetric(horizontal: 20.w),
+                clipBehavior: Clip.none,
+                itemCount: shown.length,
+                separatorBuilder: (_, __) => const Gap(16),
+                itemBuilder: (context, i) {
+                  final coupon = shown[i];
+                  return _SpecialOfferCard(
+                    title: coupon.discountSummary,
+                    subtitle: coupon.description ??
+                        (coupon.minOrderAmount > 0
+                            ? 'Min order ₹${coupon.minOrderAmount.toStringAsFixed(0)}'
+                            : 'Apply at checkout'),
+                    code: coupon.code,
+                    icon: Icons.local_offer_rounded,
+                    tone: i.isEven
+                        ? Premium3DIconTone.purple
+                        : Premium3DIconTone.aqua,
+                    onTap: () => _showOfferDetailsSheet(
+                      context,
+                      title: coupon.discountSummary,
+                      description: coupon.description ??
+                          'Apply this code at checkout to save on your order.',
+                      code: coupon.code,
+                      terms: coupon.terms,
+                    ),
+                  );
+                },
               ),
-              const Gap(16),
-              _SpecialOfferCard(
-                title: '20% off',
-                subtitle: 'your first dry clean',
-                code: 'DRYCLEAN20',
-                icon: Icons.water_drop_rounded,
-                tone: Premium3DIconTone.aqua,
-                onTap: () => _showOfferDetailsSheet(
-                  context,
-                  title: '20% Off Dry Cleaning',
-                  description:
-                      'Enjoy 20% discount on your first dry cleaning order. Minimum order value ₹299.',
-                  code: 'DRYCLEAN20',
-                  terms:
-                      'Valid once per customer. Cannot be clubbed with other offers. Valid for 30 days.',
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+            ),
+          ],
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
     );
   }
 

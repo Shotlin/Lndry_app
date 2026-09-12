@@ -50,6 +50,10 @@ abstract final class ApiEndpoints {
 
   // ── Coupons ─────────────────────────────────────────────────────────────────
   static const String couponValidate = '/coupons/validate';
+  static const String couponsAvailable = '/coupons/available';
+
+  // ── First-Time Offers ───────────────────────────────────────────────────────
+  static const String firstTimeOffersActive = '/first-time-offers/active';
 
   // ── Cart Milestones ────────────────────────────────────────────────────────
   static const String cartMilestonesActive = '/cart-milestones/active';
