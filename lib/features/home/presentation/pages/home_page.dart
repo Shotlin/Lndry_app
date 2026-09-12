@@ -14,7 +14,9 @@ import '../../../../providers/providers.dart';
 import '../../../../shared/widgets/domain_cards.dart';
 import '../../../../shared/widgets/premium_3d_icon.dart';
 import '../../../../shared/widgets/shared_widgets.dart';
+import '../../../../repositories/repositories.dart';
 import '../../../address/location_capture_service.dart';
+import '../../../cart/presentation/providers/cart_providers.dart';
 import '../../../offers/presentation/providers/offers_providers.dart';
 import '../providers/home_providers.dart';
 import '../widgets/location_capture_sheet.dart';
@@ -1087,7 +1089,11 @@ class _OfferBannerCarouselState extends ConsumerState<_OfferBannerCarousel> {
     final bannersAsync = ref.watch(homeBannersProvider);
 
     return bannersAsync.when(
-      data: (banners) {
+      data: (allBanners) {
+        // 'offer' banners get their own small strip (see
+        // `_SpecialOffersSection`) instead of this main hero carousel.
+        final banners =
+            allBanners.where((b) => b.bannerType != 'offer').toList();
         if (banners.isEmpty) {
           _autoScrollTimer?.cancel();
           _autoScrollBannerCount = null;
@@ -1156,51 +1162,90 @@ class _OfferBannerCarouselState extends ConsumerState<_OfferBannerCarousel> {
   }
 }
 
-/// Renders a single backend-driven promotional banner. Tap behavior depends
-/// on [BannerModel.linkType]: 'category' pushes the category detail route
-/// (matching the category-chip navigation elsewhere on this page), 'product'
-/// falls back to the browse tab (this app has no dedicated product-detail
-/// route yet), 'url' opens the link externally via url_launcher, and 'none'
-/// is inert.
-class _BannerPage extends StatelessWidget {
+/// Shared tap behavior for any admin-created banner, keyed off
+/// [BannerModel.linkType] — used by both the main hero carousel below and
+/// the small "Special offers" banner strip (see `_SpecialOffersSection`),
+/// so a banner behaves identically regardless of where it's shown.
+/// 'category' pushes the category detail route (matching the category-chip
+/// navigation elsewhere on this page); 'product' falls back to the browse
+/// tab (this app has no dedicated product-detail route yet); 'url' opens
+/// the link externally via url_launcher; 'coupon' validates `linkValue` (a
+/// coupon code) against the customer's current cart and, on success, hands
+/// it to Cart/Checkout the same way applying from the Coupons & Offers page
+/// does (see `pendingCouponCodeProvider`'s doc comment); 'none' is inert.
+Future<void> _handleBannerTap(
+  BuildContext context,
+  WidgetRef ref,
+  BannerModel banner,
+) async {
+  switch (banner.linkType) {
+    case 'category':
+      final categoryId = banner.linkValue;
+      if (categoryId != null && categoryId.isNotEmpty) {
+        context.push('/category/$categoryId');
+      } else {
+        StatefulNavigationShell.of(context).goBranch(1);
+      }
+    case 'product':
+      // No dedicated product-detail screen/route exists in this app yet;
+      // fall back to the browse/search tab as a reasonable default.
+      StatefulNavigationShell.of(context).goBranch(1);
+    case 'url':
+      final rawUrl = banner.linkValue;
+      if (rawUrl == null || rawUrl.isEmpty) return;
+      final uri = Uri.tryParse(rawUrl);
+      if (uri != null && await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    case 'coupon':
+      final code = banner.linkValue;
+      if (code == null || code.isEmpty) return;
+      try {
+        final repo = ref.read(customerRepositoryProvider);
+        final cartTotal = ref.read(cartStateProvider).total;
+        final result = await repo.validateCoupon(code: code, cartTotal: cartTotal);
+        if (!context.mounted) return;
+        if (result.valid) {
+          ref.read(pendingCouponCodeProvider.notifier).state = code;
+          AppSnackBar.showSuccess(
+            context,
+            result.message ?? 'Coupon "$code" applied! It\'ll be ready in your cart.',
+          );
+        } else {
+          AppSnackBar.showError(
+            context,
+            result.message ?? 'This coupon isn\'t valid for your current cart.',
+          );
+        }
+      } catch (_) {
+        if (context.mounted) {
+          AppSnackBar.showError(
+            context,
+            'Could not validate coupon. Please try again.',
+          );
+        }
+      }
+    case 'none':
+    default:
+      break;
+  }
+}
+
+/// Renders a single backend-driven promotional banner in the main hero
+/// carousel. See [_handleBannerTap] for tap behavior.
+class _BannerPage extends ConsumerWidget {
   const _BannerPage({required this.banner});
 
   final BannerModel banner;
 
-  Future<void> _handleTap(BuildContext context) async {
-    switch (banner.linkType) {
-      case 'category':
-        final categoryId = banner.linkValue;
-        if (categoryId != null && categoryId.isNotEmpty) {
-          context.push('/category/$categoryId');
-        } else {
-          StatefulNavigationShell.of(context).goBranch(1);
-        }
-      case 'product':
-        // No dedicated product-detail screen/route exists in this app yet;
-        // fall back to the browse/search tab as a reasonable default.
-        StatefulNavigationShell.of(context).goBranch(1);
-      case 'url':
-        final rawUrl = banner.linkValue;
-        if (rawUrl == null || rawUrl.isEmpty) return;
-        final uri = Uri.tryParse(rawUrl);
-        if (uri != null && await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        }
-      case 'none':
-      default:
-        break;
-    }
-  }
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final hasImage = banner.imageUrl.isNotNullOrBlank;
     final hasSubtitle = banner.subtitle.isNotNullOrBlank;
     final isTappable = banner.linkType != 'none';
 
     return GestureDetector(
-      onTap: isTappable ? () => _handleTap(context) : null,
+      onTap: isTappable ? () => _handleBannerTap(context, ref, banner) : null,
       child: Container(
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
@@ -2224,10 +2269,15 @@ class _ServicePill extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// ISSUE 4: Special Offers Section — real coupons from GET /coupons/available,
-// replacing the previous hardcoded IRONFREE/DRYCLEAN20 cards (which weren't
-// backed by any real coupon in the backend). Hidden entirely when there are
-// no eligible coupons right now rather than showing an empty heading.
+// ISSUE 4: Special Offers Section — small admin-managed banners
+// (bannerType == 'offer' from the same Banners admin page/GET /banners the
+// main hero carousel above uses), replacing the previous hardcoded
+// IRONFREE/DRYCLEAN20 cards and, before that, a raw coupon-list rendering.
+// An admin picks the image/copy and, per banner, what tapping it does —
+// apply a specific coupon, open a category, an external URL, or nothing —
+// via the same linkType/linkValue the hero carousel already uses (see
+// `_handleBannerTap`). Hidden entirely when there are no 'offer' banners
+// right now rather than showing an empty heading.
 // ═════════════════════════════════════════════════════════════════════════════
 
 class _SpecialOffersSection extends ConsumerWidget {
@@ -2235,12 +2285,13 @@ class _SpecialOffersSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final couponsAsync = ref.watch(availableCouponsProvider);
+    final bannersAsync = ref.watch(homeBannersProvider);
 
-    return couponsAsync.maybeWhen(
-      data: (coupons) {
-        if (coupons.isEmpty) return const SizedBox.shrink();
-        final shown = coupons.take(5).toList();
+    return bannersAsync.maybeWhen(
+      data: (allBanners) {
+        final offerBanners =
+            allBanners.where((b) => b.bannerType == 'offer').toList();
+        if (offerBanners.isEmpty) return const SizedBox.shrink();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2276,31 +2327,10 @@ class _SpecialOffersSection extends ConsumerWidget {
                 scrollDirection: Axis.horizontal,
                 padding: EdgeInsets.symmetric(horizontal: 20.w),
                 clipBehavior: Clip.none,
-                itemCount: shown.length,
+                itemCount: offerBanners.length,
                 separatorBuilder: (_, __) => const Gap(16),
-                itemBuilder: (context, i) {
-                  final coupon = shown[i];
-                  return _SpecialOfferCard(
-                    title: coupon.discountSummary,
-                    subtitle: coupon.description ??
-                        (coupon.minOrderAmount > 0
-                            ? 'Min order ₹${coupon.minOrderAmount.toStringAsFixed(0)}'
-                            : 'Apply at checkout'),
-                    code: coupon.code,
-                    icon: Icons.local_offer_rounded,
-                    tone: i.isEven
-                        ? Premium3DIconTone.purple
-                        : Premium3DIconTone.aqua,
-                    onTap: () => _showOfferDetailsSheet(
-                      context,
-                      title: coupon.discountSummary,
-                      description: coupon.description ??
-                          'Apply this code at checkout to save on your order.',
-                      code: coupon.code,
-                      terms: coupon.terms,
-                    ),
-                  );
-                },
+                itemBuilder: (context, i) =>
+                    _OfferBannerCard(banner: offerBanners[i]),
               ),
             ),
           ],
@@ -2309,215 +2339,53 @@ class _SpecialOffersSection extends ConsumerWidget {
       orElse: () => const SizedBox.shrink(),
     );
   }
-
-  static void _showOfferDetailsSheet(
-    BuildContext context, {
-    required String title,
-    required String description,
-    required String code,
-    String? terms,
-  }) {
-    AppBottomSheet.show<void>(
-      context: context,
-      title: 'Offer Details',
-      primaryActionLabel: 'Copy Code',
-      secondaryActionLabel: 'Close',
-      onSecondaryAction: () => Navigator.of(context).pop(),
-      onPrimaryAction: () {
-        Navigator.of(context).pop();
-      },
-      child: Padding(
-        padding: EdgeInsets.symmetric(vertical: 8.h),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 48.r,
-                  height: 48.r,
-                  decoration: const BoxDecoration(
-                    color: AppColors.primaryContainer,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    AppIcons.laundry,
-                    color: AppColors.primary,
-                    size: 24.r,
-                  ),
-                ),
-                Gap(AppSpacing.md.w),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: AppTypography.titleLarge.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            Gap(AppSpacing.cardGap.h),
-            Text(
-              description,
-              style: AppTypography.bodyMedium.copyWith(
-                color: AppColors.onSurfaceVariant,
-                height: 1.5,
-              ),
-            ),
-            Gap(AppSpacing.md.h),
-            Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: AppSpacing.md.w,
-                vertical: AppSpacing.sm.h,
-              ),
-              decoration: BoxDecoration(
-                color: AppColors.primaryContainer,
-                borderRadius: BorderRadius.circular(AppRadius.input.r),
-              ),
-              child: Row(
-                children: [
-                  Icon(AppIcons.coupon, color: AppColors.primary, size: 18.r),
-                  Gap(AppSpacing.sm.w),
-                  Expanded(
-                    child: Text(
-                      code,
-                      style: AppTypography.titleSmall.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.primary,
-                        letterSpacing: 2,
-                      ),
-                    ),
-                  ),
-                  Icon(
-                    AppIcons.copy,
-                    color: AppColors.primary,
-                    size: 18.r,
-                  ),
-                ],
-              ),
-            ),
-            if (terms != null) ...[
-              Gap(AppSpacing.md.h),
-              Text(
-                'Terms & Conditions',
-                style: AppTypography.labelMedium.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Gap(AppSpacing.xs.h),
-              Text(
-                terms,
-                style: AppTypography.bodySmall.copyWith(
-                  color: AppColors.onSurfaceVariant,
-                  height: 1.5,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
 }
 
-class _SpecialOfferCard extends StatelessWidget {
-  const _SpecialOfferCard({
-    required this.title,
-    required this.subtitle,
-    required this.code,
-    required this.icon,
-    required this.tone,
-    required this.onTap,
-  });
+/// A single small "offer" banner card — real admin-uploaded image, tap
+/// behavior fully driven by [BannerModel.linkType]/`linkValue` via
+/// [_handleBannerTap] (same as the main hero carousel's `_BannerPage`,
+/// just a smaller card shape suited to a horizontal strip).
+class _OfferBannerCard extends ConsumerWidget {
+  const _OfferBannerCard({required this.banner});
 
-  final String title;
-  final String subtitle;
-  final String code;
-  final IconData icon;
-  final Premium3DIconTone tone;
-  final VoidCallback onTap;
+  final BannerModel banner;
 
   @override
-  Widget build(BuildContext context) {
-    final isAqua = tone == Premium3DIconTone.aqua;
-    final accent = isAqua ? AppColors.aquaDeep : AppColors.primary;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hasImage = banner.imageUrl.isNotNullOrBlank;
+    final hasSubtitle = banner.subtitle.isNotNullOrBlank;
+    final isTappable = banner.linkType != 'none';
+
     return GestureDetector(
-      onTap: onTap,
+      onTap: isTappable ? () => _handleBannerTap(context, ref, banner) : null,
       child: Container(
         width: 250.w,
-        padding: EdgeInsets.all(12.r),
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
+          gradient: const LinearGradient(
+            colors: [AppColors.offerLavender, AppColors.secondaryLight],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: isAqua
-                ? [AppColors.aquaTint, AppColors.white]
-                : [AppColors.offerLavender, AppColors.white],
           ),
           borderRadius: BorderRadius.circular(AppRadius.card.r),
-          border: Border.all(color: AppColors.white.withValues(alpha: 0.9)),
-          boxShadow: [
-            BoxShadow(
-              color: accent.withValues(alpha: 0.10),
-              blurRadius: 14,
-              offset: const Offset(0, 6),
-            ),
-          ],
+          boxShadow: AppElevation.low,
         ),
-        child: Row(
-          children: [
-            Premium3DIcon(icon: icon, tone: tone, size: 48, iconSize: 22),
-            const Gap(12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    title,
-                    style: AppTypography.titleSmall.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textBlack,
-                    ),
-                  ),
-                  Text(
-                    subtitle,
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  const Gap(4),
-                  Container(
-                    padding:
-                        EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
-                    decoration: BoxDecoration(
-                      color: AppColors.white,
-                      borderRadius: BorderRadius.circular(4.r),
-                    ),
-                    child: Text(
-                      'Use code: $code',
-                      style: AppTypography.caption.copyWith(
-                        fontSize: 9.sp,
-                        fontWeight: FontWeight.w600,
-                        color: accent,
-                      ),
-                    ),
-                  ),
-                ],
+        child: hasImage
+            ? CachedNetworkImage(
+                imageUrl: banner.imageUrl!,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
+                placeholder: (_, __) => const SizedBox.shrink(),
+                errorWidget: (_, __, ___) => _BannerFallbackText(
+                  title: banner.title,
+                  subtitle: hasSubtitle ? banner.subtitle : null,
+                ),
+              )
+            : _BannerFallbackText(
+                title: banner.title,
+                subtitle: hasSubtitle ? banner.subtitle : null,
               ),
-            ),
-            Container(
-              padding: EdgeInsets.all(6.r),
-              decoration: const BoxDecoration(
-                color: AppColors.white,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(AppIcons.forward, color: accent, size: 12.r),
-            ),
-          ],
-        ),
       ),
     );
   }
