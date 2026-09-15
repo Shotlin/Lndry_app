@@ -67,6 +67,13 @@ abstract final class ApiEndpoints {
   static const String createPaymentOrder = '/payments/create-order';
   static const String verifyPayment = '/payments/verify';
   static const String paymentHistory = '/payments/history';
+  static const String payWithWallet = '/payments/pay-with-wallet';
+
+  // ── Wallet ──────────────────────────────────────────────────────────────────
+  static const String wallet = '/wallet';
+  static const String walletTransactions = '/wallet/transactions';
+  static const String walletTopUp = '/wallet/topup';
+  static const String walletTopUpVerify = '/wallet/topup/verify';
 
   // ── Addresses ───────────────────────────────────────────────────────────────
   static const String addresses = '/addresses';

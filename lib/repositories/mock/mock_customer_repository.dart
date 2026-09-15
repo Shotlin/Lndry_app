@@ -519,6 +519,68 @@ class MockCustomerRepository implements CustomerRepository {
     );
   }
 
+  // ── Wallet (mock) ─────────────────────────────────────────────────────────
+
+  @override
+  Future<WalletModel> getWallet() async {
+    await _delay(fast: true);
+    return const WalletModel(id: 'wallet_mock', balance: 250);
+  }
+
+  @override
+  Future<List<WalletTransactionModel>> getWalletTransactions() async {
+    await _delay(fast: true);
+    final now = DateTime.now();
+    return [
+      WalletTransactionModel(
+        id: 'wtx_mock_1',
+        type: 'CREDIT',
+        amount: 50,
+        description: 'Referral reward',
+        balanceAfter: 250,
+        createdAt: now.subtract(const Duration(days: 1)),
+      ),
+      WalletTransactionModel(
+        id: 'wtx_mock_2',
+        type: 'DEBIT',
+        amount: 30,
+        description: 'Order advance payment',
+        balanceAfter: 200,
+        createdAt: now.subtract(const Duration(days: 3)),
+      ),
+    ];
+  }
+
+  @override
+  Future<WalletTopUpOrderResult> createWalletTopUp(double amount) async {
+    await _delay();
+    return WalletTopUpOrderResult(
+      razorpayOrderId: 'rzp_mock_topup_${DateTime.now().millisecondsSinceEpoch}',
+      amount: amount,
+      currency: 'INR',
+      keyId: 'rzp_mock_key',
+    );
+  }
+
+  @override
+  Future<WalletModel> verifyWalletTopUp({
+    required String paymentId,
+    required String orderId,
+    required String signature,
+  }) async {
+    await _delay(fast: true);
+    return const WalletModel(id: 'wallet_mock', balance: 250);
+  }
+
+  @override
+  Future<WalletPaymentResult> payWithWallet({
+    String? orderId,
+    String? orderDraftId,
+  }) async {
+    await _delay(fast: true);
+    return const WalletPaymentResult(success: true);
+  }
+
   // ── Pickup Slots (mock) ───────────────────────────────────────────────────
 
   @override
@@ -627,7 +689,8 @@ class MockCustomerRepository implements CustomerRepository {
   Future<OrderDraftResult> prepareOrder({
     required String quoteId,
     required String addressId,
-    required String slotId,
+    String? slotId,
+    bool isExpressPickup = false,
     String? couponCode,
   }) async {
     await _delay();

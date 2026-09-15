@@ -161,6 +161,31 @@ abstract interface class CustomerRepository {
     String? orderDraftId,
   });
 
+  // ── Wallet ─────────────────────────────────────────────────────────────────
+  /// Current wallet balance.
+  Future<WalletModel> getWallet();
+
+  /// Wallet transaction history, most recent first.
+  Future<List<WalletTransactionModel>> getWalletTransactions();
+
+  /// Step 1: create a Razorpay order to top up the wallet.
+  Future<WalletTopUpOrderResult> createWalletTopUp(double amount);
+
+  /// Step 2: verify the top-up payment and credit the wallet.
+  Future<WalletModel> verifyWalletTopUp({
+    required String paymentId,
+    required String orderId,
+    required String signature,
+  });
+
+  /// Pay a draft's advance, or an existing order's balance, straight from
+  /// wallet balance — an alternative to the Razorpay create+verify round
+  /// trip for [createPaymentOrder]/[verifyPayment].
+  Future<WalletPaymentResult> payWithWallet({
+    String? orderId,
+    String? orderDraftId,
+  });
+
   // ── Order Actions ─────────────────────────────────────────────────────────
   /// Reorder a previous order.
   Future<ReorderResult> reorder(String orderId);
@@ -426,6 +451,62 @@ class PaymentVerificationResult {
   final String? razorpayPaymentId;
   final String? orderId;
   final String? status;
+}
+
+// ── Wallet Types ─────────────────────────────────────────────────────────────
+
+/// Current wallet balance.
+class WalletModel {
+  const WalletModel({required this.id, required this.balance});
+
+  final String id;
+  final double balance;
+}
+
+/// A single wallet ledger entry.
+class WalletTransactionModel {
+  const WalletTransactionModel({
+    required this.id,
+    required this.type,
+    required this.amount,
+    required this.description,
+    required this.createdAt,
+    this.balanceAfter,
+  });
+
+  final String id;
+
+  /// 'CREDIT' or 'DEBIT'.
+  final String type;
+  final double amount;
+  final String description;
+  final DateTime createdAt;
+  final double? balanceAfter;
+
+  bool get isCredit => type == 'CREDIT';
+}
+
+/// Result of creating a Razorpay order for a wallet top-up.
+class WalletTopUpOrderResult {
+  const WalletTopUpOrderResult({
+    required this.razorpayOrderId,
+    required this.amount,
+    required this.currency,
+    this.keyId,
+  });
+
+  final String razorpayOrderId;
+  final double amount;
+  final String currency;
+  final String? keyId;
+}
+
+/// Result of paying a draft's advance / an order's balance from wallet.
+class WalletPaymentResult {
+  const WalletPaymentResult({required this.success, this.message});
+
+  final bool success;
+  final String? message;
 }
 
 // ── Pickup Slot Types ────────────────────────────────────────────────────────

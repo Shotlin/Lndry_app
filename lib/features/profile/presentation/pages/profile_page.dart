@@ -286,6 +286,17 @@ class ProfilePage extends ConsumerWidget {
                       ),
                       Divider(height: 1, color: AppColors.outline),
                       _SettingsTile(
+                        icon: AppIcons.wallet,
+                        label: 'My Wallet',
+                        onTap: () => requireAuthenticated(
+                          context: context,
+                          ref: ref,
+                          returnTo: AppRoutes.wallet,
+                          action: (context, _) => context.push(AppRoutes.wallet),
+                        ),
+                      ),
+                      Divider(height: 1, color: AppColors.outline),
+                      _SettingsTile(
                         icon: AppIcons.settings,
                         label: 'Settings',
                         onTap: () => context.push(AppRoutes.settings),

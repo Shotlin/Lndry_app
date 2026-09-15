@@ -42,6 +42,7 @@ import '../../features/profile/presentation/pages/last_order_review_page.dart';
 import '../../features/profile/presentation/pages/settings_page.dart';
 import '../../features/profile/presentation/pages/help_page.dart';
 import '../../features/offers/presentation/pages/offers_page.dart';
+import '../../features/wallet/presentation/pages/wallet_page.dart';
 
 // ── Custom Transitions ────────────────────────────────────────────────────────
 
@@ -416,6 +417,12 @@ final List<RouteBase> _routes = [
               name: AppRouteNames.offers,
               pageBuilder: (c, s) => _slideTransition(
                   context: c, state: s, child: const OffersPage()),
+            ),
+            GoRoute(
+              path: 'wallet',
+              name: AppRouteNames.wallet,
+              pageBuilder: (c, s) => _slideTransition(
+                  context: c, state: s, child: const WalletPage()),
             ),
           ],
         ),

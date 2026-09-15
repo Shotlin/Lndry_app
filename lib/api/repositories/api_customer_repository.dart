@@ -706,6 +706,90 @@ class ApiCustomerRepository implements CustomerRepository {
     }
   }
 
+  // ── Wallet ─────────────────────────────────────────────────────────────────
+
+  @override
+  Future<WalletModel> getWallet() async {
+    final resp = await _dio.get(ApiEndpoints.wallet);
+    final data = _extractData(resp.data as Map<String, dynamic>);
+    return WalletModel(
+      id: data['id'] as String? ?? '',
+      balance: (data['balance'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+
+  @override
+  Future<List<WalletTransactionModel>> getWalletTransactions() async {
+    final resp = await _dio.get(ApiEndpoints.walletTransactions);
+    final list = _extractList(resp.data as Map<String, dynamic>);
+    return list.map((e) {
+      final json = e as Map<String, dynamic>;
+      return WalletTransactionModel(
+        id: json['id'] as String? ?? '',
+        type: json['type'] as String? ?? 'CREDIT',
+        amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+        description: json['description'] as String? ?? '',
+        balanceAfter: (json['balanceAfter'] as num?)?.toDouble(),
+        createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+            DateTime.now(),
+      );
+    }).toList();
+  }
+
+  @override
+  Future<WalletTopUpOrderResult> createWalletTopUp(double amount) async {
+    final resp = await _dio.post(
+      ApiEndpoints.walletTopUp,
+      data: {'amount': amount},
+    );
+    final data = _extractData(resp.data as Map<String, dynamic>);
+    return WalletTopUpOrderResult(
+      razorpayOrderId: data['razorpayOrderId'] as String? ?? '',
+      amount: (data['amount'] as num?)?.toDouble() ?? amount,
+      currency: data['currency'] as String? ?? 'INR',
+      keyId: data['keyId'] as String?,
+    );
+  }
+
+  @override
+  Future<WalletModel> verifyWalletTopUp({
+    required String paymentId,
+    required String orderId,
+    required String signature,
+  }) async {
+    final resp = await _dio.post(
+      ApiEndpoints.walletTopUpVerify,
+      data: {
+        'paymentId': paymentId,
+        'orderId': orderId,
+        'signature': signature,
+      },
+    );
+    final data = _extractData(resp.data as Map<String, dynamic>);
+    final wallet = data['wallet'] as Map<String, dynamic>? ?? data;
+    return WalletModel(
+      id: wallet['id'] as String? ?? '',
+      balance: (wallet['balance'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+
+  @override
+  Future<WalletPaymentResult> payWithWallet({
+    String? orderId,
+    String? orderDraftId,
+  }) async {
+    final body = <String, dynamic>{
+      if (orderId != null) 'orderId': orderId,
+      if (orderDraftId != null) 'order_draft_id': orderDraftId,
+    };
+    try {
+      await _dio.post(ApiEndpoints.payWithWallet, data: body);
+      return const WalletPaymentResult(success: true);
+    } on ApiException catch (e) {
+      return WalletPaymentResult(success: false, message: e.message);
+    }
+  }
+
   // ── Pickup Slots ──────────────────────────────────────────────────────────
 
   @override
@@ -805,13 +889,15 @@ class ApiCustomerRepository implements CustomerRepository {
   Future<OrderDraftResult> prepareOrder({
     required String quoteId,
     required String addressId,
-    required String slotId,
+    String? slotId,
+    bool isExpressPickup = false,
     String? couponCode,
   }) async {
     final body = <String, dynamic>{
       'quote_id': quoteId,
       'address_id': addressId,
-      'slot_id': slotId,
+      if (slotId != null && slotId.isNotEmpty) 'slot_id': slotId,
+      if (isExpressPickup) 'is_express_pickup': true,
       if (couponCode != null && couponCode.isNotEmpty) 'coupon_code': couponCode,
     };
     final resp = await _dio.post(ApiEndpoints.orderPrepare, data: body);
@@ -1347,11 +1433,17 @@ class ApiCustomerRepository implements CustomerRepository {
       coverImageUrl: json['banner_url'] as String?,
       logoUrl: json['logo_url'] as String?,
       averageRating: _toDouble(json['rating']),
+      reviewCount: (json['review_count'] as num?)?.toInt() ?? 0,
       distanceKm: _toDouble(json['distance_km']),
       isOpen: json['is_open'] as bool? ?? json['isOpen'] as bool? ?? true,
       isVerified: json['is_verified'] as bool? ?? json['isVerified'] as bool? ?? false,
+      minOrderAmount:
+          _toDouble(json['min_rate_paise']) != null
+              ? _toDouble(json['min_rate_paise'])! / 100
+              : 99.0,
       deliveryRadiusKm: _toDouble(json['approved_service_radius_km']) ?? 0.0,
       estimatedTurnaroundHours: 24,
+      expressPickupAvailable: json['express_pickup_available'] as bool? ?? false,
     );
   }
 
@@ -1417,10 +1509,22 @@ class ApiCustomerRepository implements CustomerRepository {
           : null,
       pickupAddressId: '',
       deliveryAddressId: '',
+      // 'pickup_date' is what the backend actually sends (as 'pickupDate'
+      // camelCase, not the snake_case checked here previously) — this was
+      // silently never matching, so every order showed no scheduled pickup
+      // date at all regardless of timezone.
       scheduledPickupAt: DateTime.tryParse(
           json['scheduledPickupAt'] as String? ??
+              json['pickupDate'] as String? ??
               json['pickup_date'] as String? ??
               ''),
+      pickupSlotStartTime: json['pickupSlotStartTime'] as String? ??
+          json['pickup_slot_start_time'] as String?,
+      pickupSlotEndTime: json['pickupSlotEndTime'] as String? ??
+          json['pickup_slot_end_time'] as String?,
+      isExpressPickup: json['isExpressPickup'] as bool? ??
+          json['is_express_pickup'] as bool? ??
+          false,
       estimatedDeliveryAt: DateTime.tryParse(
           json['estimatedDelivery'] as String? ??
               json['estimated_delivery_at'] as String? ??
