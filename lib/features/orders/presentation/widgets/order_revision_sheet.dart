@@ -29,6 +29,7 @@ class OrderRevisionSheet {
   static Future<ReconciliationDecision?> show({
     required BuildContext context,
     required OrderReconciliationModel reconciliation,
+    required OrderModel order,
   }) {
     return AppBottomSheet.show<ReconciliationDecision>(
       context: context,
@@ -40,15 +41,40 @@ class OrderRevisionSheet {
       secondaryActionLabel: 'Reject',
       onSecondaryAction: () =>
           Navigator.of(context).pop(ReconciliationDecision.reject),
-      child: _RevisionContent(reconciliation: reconciliation),
+      child: _RevisionContent(reconciliation: reconciliation, order: order),
     );
   }
 }
 
 class _RevisionContent extends StatelessWidget {
-  const _RevisionContent({required this.reconciliation});
+  const _RevisionContent({required this.reconciliation, required this.order});
 
   final OrderReconciliationModel reconciliation;
+  final OrderModel order;
+
+  /// Which item a reported problem is about — mirrors
+  /// _ReevaluationSection's resolver in order_details_page.dart: an
+  /// existing line's name comes from the order's own items; a line the
+  /// vendor added during this same reconciliation (no real order_lines.id
+  /// yet) comes from the reconciliation's own line_changes, matched by
+  /// position among its is-new entries.
+  String? _itemNameFor(ReconciliationProblem problem) {
+    if (problem.orderLineId != null) {
+      for (final item in order.items) {
+        if (item.orderLineId == problem.orderLineId) return item.serviceName;
+      }
+      return null;
+    }
+    if (problem.newLineIndex != null) {
+      final newLineChanges =
+          reconciliation.lineChanges.where((c) => c.isNew).toList();
+      if (problem.newLineIndex! >= 0 &&
+          problem.newLineIndex! < newLineChanges.length) {
+        return newLineChanges[problem.newLineIndex!].proposedName;
+      }
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +93,58 @@ class _RevisionContent extends StatelessWidget {
         ),
         Gap(AppSpacing.md.h),
 
-        if (reconciliation.photos.isNotEmpty) ...[
+        // Structured per-item reports (what the vendor actually flagged,
+        // tied to the specific service it's about) take priority over the
+        // older, unlabeled photo strip below — which now only appears as a
+        // fallback for reconciliations that predate per-item reporting.
+        if (reconciliation.problems.isNotEmpty) ...[
+          for (final problem in reconciliation.problems)
+            Container(
+              margin: EdgeInsets.only(bottom: 8.h),
+              padding: EdgeInsets.all(10.r),
+              decoration: BoxDecoration(
+                color: AppColors.black,
+                borderRadius: BorderRadius.circular(AppRadius.sm.r),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    problem.displayReason('Other'),
+                    style: AppTypography.bodySmall.copyWith(color: AppColors.white, fontWeight: FontWeight.bold),
+                  ),
+                  if (_itemNameFor(problem) case final itemName?) ...[
+                    Gap(2.h),
+                    Text(
+                      'For: $itemName',
+                      style: AppTypography.bodySmall.copyWith(color: AppColors.white.withOpacity(0.75)),
+                    ),
+                  ],
+                  if (problem.photoUrls.isNotEmpty) ...[
+                    Gap(6.h),
+                    SizedBox(
+                      height: 64.r,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: problem.photoUrls.length,
+                        separatorBuilder: (_, __) => Gap(6.w),
+                        itemBuilder: (context, idx) => ClipRRect(
+                          borderRadius: BorderRadius.circular(6.r),
+                          child: Image.network(
+                            problem.photoUrls[idx],
+                            width: 64.r,
+                            height: 64.r,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          Gap(AppSpacing.sm.h),
+        ] else if (reconciliation.photos.isNotEmpty) ...[
           SizedBox(
             height: 84.r,
             child: ListView.separated(

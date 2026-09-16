@@ -1633,6 +1633,8 @@ class ApiCustomerRepository implements CustomerRepository {
           0.0,
       notes: json['notes'] as String?,
       unit: json['unit'] as String? ?? 'piece',
+      orderLineId: json['orderLineId'] as String? ??
+          json['order_line_id'] as String?,
     );
   }
 

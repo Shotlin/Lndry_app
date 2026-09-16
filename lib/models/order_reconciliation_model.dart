@@ -49,6 +49,39 @@ class ReconciliationLineChange with _$ReconciliationLineChange {
       _$ReconciliationLineChangeFromJson(json);
 }
 
+/// One vendor-reported issue on a specific line within a reconciliation —
+/// e.g. "Damaged Item" with photo evidence, or a free-text "Other" reason.
+/// Purely evidentiary: it documents *why* the line's quantity/service
+/// changed, it never drives the price change itself. Exactly one of
+/// [orderLineId] (an existing line) / [newLineIndex] (a line the vendor
+/// added during this same reconciliation — matched by its position among
+/// [OrderReconciliationModel.lineChanges]' `isNew` entries, since it has no
+/// real order id yet) is non-null.
+@freezed
+class ReconciliationProblem with _$ReconciliationProblem {
+  const factory ReconciliationProblem({
+    required String id,
+    String? orderLineId,
+    int? newLineIndex,
+    String? problemTypeId,
+    /// The admin-curated category label (e.g. "Damaged Item"), when one was
+    /// picked — null when the vendor chose "Other" and wrote [customMessage].
+    String? problemTypeLabel,
+    String? customMessage,
+    @Default([]) List<String> photoUrls,
+  }) = _ReconciliationProblem;
+
+  const ReconciliationProblem._();
+
+  /// What to actually show as the reason — the admin-curated label when
+  /// one was picked, otherwise the vendor's own custom message.
+  String displayReason(String otherFallbackLabel) =>
+      problemTypeLabel ?? customMessage ?? otherFallbackLabel;
+
+  factory ReconciliationProblem.fromJson(Map<String, dynamic> json) =>
+      _$ReconciliationProblemFromJson(json);
+}
+
 /// A vendor's proposed recalculation currently (or previously) awaiting this
 /// customer's accept/reject decision — `GET /orders/:id/reconciliation`.
 @freezed
@@ -70,6 +103,11 @@ class OrderReconciliationModel with _$OrderReconciliationModel {
     @JsonKey(name: 'line_changes') @Default([]) List<ReconciliationLineChange> lineChanges,
     String? reason,
     @Default([]) List<String> photos,
+    /// Structured per-line reports (see [ReconciliationProblem]) — what the
+    /// vendor actually flagged, tied to the specific item it's about,
+    /// distinct from [reason] (a free-text note for the whole submission)
+    /// and [photos] (general evidence not tied to any one line).
+    @Default([]) List<ReconciliationProblem> problems,
     /// e.g. 'VENDOR_RIDER', 'VENDOR_OWNER', 'VENDOR_STAFF' — who performed
     /// this re-evaluation.
     @JsonKey(name: 'proposed_by_role') String? proposedByRole,

@@ -155,11 +155,13 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
 
   Future<void> _showRevisionSheet() async {
     final reconciliation = _reconciliation;
-    if (reconciliation == null || !mounted) return;
+    final order = _order;
+    if (reconciliation == null || order == null || !mounted) return;
 
     final decision = await OrderRevisionSheet.show(
       context: context,
       reconciliation: reconciliation,
+      order: order,
     );
     if (decision == null || !mounted) return;
 
@@ -901,6 +903,7 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                     title: 'Captain Re-evaluation',
                     subtitle: 'Preliminary estimate at pickup — not final',
                     reconciliation: rider,
+                    order: order,
                   ),
                   Gap(AppSpacing.md.h),
                 ],
@@ -909,6 +912,7 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                     title: 'Vendor Re-evaluation',
                     subtitle: 'Final — confirmed after vendor inspection',
                     reconciliation: vendor,
+                    order: order,
                   ),
                   Gap(AppSpacing.md.h),
                 ],
@@ -1223,11 +1227,36 @@ class _ReevaluationSection extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.reconciliation,
+    required this.order,
   });
 
   final String title;
   final String subtitle;
   final OrderReconciliationModel reconciliation;
+  final OrderModel order;
+
+  /// Which item a reported problem is about — an existing line's name
+  /// comes from the order's own items; a line the vendor added during this
+  /// same reconciliation (no real order_lines.id yet at submission time)
+  /// comes from the reconciliation's own line_changes, matched by position
+  /// among its is-new entries.
+  String? _itemNameFor(ReconciliationProblem problem) {
+    if (problem.orderLineId != null) {
+      for (final item in order.items) {
+        if (item.orderLineId == problem.orderLineId) return item.serviceName;
+      }
+      return null;
+    }
+    if (problem.newLineIndex != null) {
+      final newLineChanges =
+          reconciliation.lineChanges.where((c) => c.isNew).toList();
+      if (problem.newLineIndex! >= 0 &&
+          problem.newLineIndex! < newLineChanges.length) {
+        return newLineChanges[problem.newLineIndex!].proposedName;
+      }
+    }
+    return null;
+  }
 
   String get _performedBy => switch (reconciliation.proposedByRole) {
         'VENDOR_RIDER' => 'Captain',
@@ -1328,6 +1357,61 @@ class _ReevaluationSection extends StatelessWidget {
               'This is the vendor\'s final evaluated amount.',
               style: AppTypography.bodySmall.copyWith(color: AppColors.success, fontWeight: FontWeight.w600),
             ),
+          ],
+
+          // Structured per-item reports — exactly which service had an
+          // issue, why, and that item's own photo evidence. Distinct from
+          // the general reason/photos below, which aren't tied to any one
+          // line and predate this per-item reporting.
+          if (reconciliation.problems.isNotEmpty) ...[
+            Gap(AppSpacing.cardGap.h),
+            Text('Reported Issues', style: AppTypography.labelLarge.copyWith(fontWeight: FontWeight.bold)),
+            Gap(6.h),
+            for (final problem in reconciliation.problems)
+              Container(
+                margin: EdgeInsets.only(bottom: 8.h),
+                padding: EdgeInsets.all(10.r),
+                decoration: BoxDecoration(
+                  color: AppColors.black,
+                  borderRadius: BorderRadius.circular(AppRadius.sm.r),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      problem.displayReason('Other'),
+                      style: AppTypography.bodySmall.copyWith(color: AppColors.white, fontWeight: FontWeight.bold),
+                    ),
+                    if (_itemNameFor(problem) case final itemName?) ...[
+                      Gap(2.h),
+                      Text(
+                        'For: $itemName',
+                        style: AppTypography.bodySmall.copyWith(color: AppColors.white.withOpacity(0.75)),
+                      ),
+                    ],
+                    if (problem.photoUrls.isNotEmpty) ...[
+                      Gap(6.h),
+                      SizedBox(
+                        height: 52.r,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: problem.photoUrls.length,
+                          separatorBuilder: (_, __) => Gap(6.w),
+                          itemBuilder: (context, idx) => ClipRRect(
+                            borderRadius: BorderRadius.circular(6.r),
+                            child: Image.network(
+                              problem.photoUrls[idx],
+                              width: 52.r,
+                              height: 52.r,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
           ],
 
           if (reconciliation.photos.isNotEmpty) ...[

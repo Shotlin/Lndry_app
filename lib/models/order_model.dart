@@ -196,6 +196,12 @@ class OrderItem with _$OrderItem {
     /// than trusted from `quantity` (which becomes a sentinel `1` once
     /// corrected, since order_lines.quantity is an INTEGER column).
     @Default('piece') String unit,
+    /// The real order_lines.id this item corresponds to — lets a
+    /// reconciliation's per-line problem report (see
+    /// ReconciliationProblem.orderLineId) be matched back to the specific
+    /// item it's about. Null for legacy orders whose items snapshot
+    /// predates order_lines.
+    String? orderLineId,
   }) = _OrderItem;
 
   factory OrderItem.fromJson(Map<String, dynamic> json) =>
