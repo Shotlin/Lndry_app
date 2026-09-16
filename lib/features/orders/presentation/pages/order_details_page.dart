@@ -554,7 +554,7 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
           (riderTime == null || vendorTime.isAfter(riderTime));
       latestEvaluatorLabel = vendorIsLatest
           ? 'Vendor Re-evaluation (Final)'
-          : 'Rider Re-evaluation (Preliminary)';
+          : 'Captain Re-evaluation (Preliminary)';
     }
 
     return Scaffold(
@@ -898,7 +898,7 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                 // what they pay.
                 if (rider != null) ...[
                   _ReevaluationSection(
-                    title: 'Rider Re-evaluation',
+                    title: 'Captain Re-evaluation',
                     subtitle: 'Preliminary estimate at pickup — not final',
                     reconciliation: rider,
                   ),
@@ -967,7 +967,7 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                     amountPaid: order.amountPaid,
                     statusText: vendor != null
                         ? 'Vendor Re-evaluation Done'
-                        : (rider != null ? 'Rider Re-evaluation Done' : null),
+                        : (rider != null ? 'Captain Re-evaluation Done' : null),
                     isFinalBill: vendor != null,
                   ),
                   Gap(AppSpacing.sectionGap.h),
@@ -1230,7 +1230,7 @@ class _ReevaluationSection extends StatelessWidget {
   final OrderReconciliationModel reconciliation;
 
   String get _performedBy => switch (reconciliation.proposedByRole) {
-        'VENDOR_RIDER' => 'Rider',
+        'VENDOR_RIDER' => 'Captain',
         'VENDOR_OWNER' || 'VENDOR_STAFF' => 'Vendor',
         _ => reconciliation.proposedByRole ?? 'Unknown',
       };
@@ -1382,7 +1382,7 @@ class _ReevaluationStatusFlow extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _flowStep('Rider Re-evaluation', riderDone),
+          _flowStep('Captain Re-evaluation', riderDone),
           Gap(6.h),
           _flowStep('Pickup', pickupDone),
           Gap(6.h),
