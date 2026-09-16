@@ -62,7 +62,7 @@ abstract interface class CustomerRepository {
 
   // ── Profile ───────────────────────────────────────────────────────────────
   Future<UserModel> getProfile();
-  Future<UserModel> updateProfile(UpdateProfileRequest request);
+  Future<UpdateProfileResult> updateProfile(UpdateProfileRequest request);
 
   // ── Addresses ─────────────────────────────────────────────────────────────
   Future<List<AddressModel>> getAddresses();
@@ -185,6 +185,14 @@ abstract interface class CustomerRepository {
     String? orderId,
     String? orderDraftId,
   });
+
+  // ── Referrals (Refer & Earn) ────────────────────────────────────────────────
+  /// The current customer's own referral code, stats, and the terms of
+  /// whichever active program currently applies to them as a referrer.
+  Future<ReferralSummary> getReferralSummary();
+
+  /// Every person this customer has referred, most recent first.
+  Future<List<ReferralHistoryItem>> getReferralHistory();
 
   // ── Order Actions ─────────────────────────────────────────────────────────
   /// Reorder a previous order.
@@ -509,6 +517,80 @@ class WalletPaymentResult {
   final String? message;
 }
 
+// ── Referral Types ───────────────────────────────────────────────────────────
+
+/// The active program's terms, as they apply to the current customer
+/// specifically as a referrer (server-resolved — mirrors exactly what
+/// redeeming right now would actually grant).
+class ReferralActiveProgram {
+  const ReferralActiveProgram({
+    required this.name,
+    required this.referrerRewardType,
+    this.referrerRewardAmount,
+    this.referrerRewardCount,
+    required this.refereeRewardType,
+    this.refereeRewardAmount,
+    this.refereeRewardCount,
+    this.termsText,
+  });
+
+  final String name;
+  final String referrerRewardType;
+  final double? referrerRewardAmount;
+  final int? referrerRewardCount;
+  final String refereeRewardType;
+  final double? refereeRewardAmount;
+  final int? refereeRewardCount;
+  final String? termsText;
+}
+
+/// The current customer's own referral code, stats, and active program.
+class ReferralSummary {
+  const ReferralSummary({
+    required this.referralCode,
+    required this.totalReferred,
+    required this.pending,
+    required this.completed,
+    required this.totalWalletEarned,
+    this.activeProgram,
+  });
+
+  final String? referralCode;
+  final int totalReferred;
+  final int pending;
+  final int completed;
+  final double totalWalletEarned;
+  final ReferralActiveProgram? activeProgram;
+}
+
+/// One entry in "who I've referred" — refereeName/Phone are already
+/// masked/first-name-only by the backend, safe to show as-is.
+class ReferralHistoryItem {
+  const ReferralHistoryItem({
+    required this.id,
+    required this.status,
+    this.refereeName,
+    this.refereePhoneMasked,
+    required this.refereeSignedUpAt,
+    this.refereeFirstOrderCompletedAt,
+    required this.referrerRewardStatus,
+    this.referrerRewardGrantedAt,
+  });
+
+  final String id;
+
+  /// 'PENDING_FIRST_ORDER' or 'COMPLETED'.
+  final String status;
+  final String? refereeName;
+  final String? refereePhoneMasked;
+  final DateTime refereeSignedUpAt;
+  final DateTime? refereeFirstOrderCompletedAt;
+
+  /// 'NOT_APPLICABLE' | 'PENDING' | 'GRANTED' | 'FAILED'.
+  final String referrerRewardStatus;
+  final DateTime? referrerRewardGrantedAt;
+}
+
 // ── Pickup Slot Types ────────────────────────────────────────────────────────
 
 /// A pickup slot returned by the backend.
@@ -828,8 +910,42 @@ class UpdateProfileRequest {
     this.name,
     this.email,
     this.avatarUrl,
+    this.referralCode,
   });
   final String? name;
   final String? email;
   final String? avatarUrl;
+
+  /// Only ever meaningful on the one-time onboarding "complete your
+  /// profile" screen — the backend guards redemption by `referred_by IS
+  /// NULL`, so passing this on a later ordinary profile edit is always a
+  /// safe no-op regardless.
+  final String? referralCode;
+}
+
+/// Outcome of a [UpdateProfileRequest.referralCode] redemption attempt —
+/// null when no code was submitted at all (the common case for an
+/// ordinary profile edit). An unsuccessful redemption is a soft failure:
+/// [success] is false but the profile update itself already went through.
+class ReferralRedemptionResult {
+  const ReferralRedemptionResult({
+    required this.success,
+    this.redeemed = false,
+    this.code,
+    this.message,
+  });
+
+  final bool success;
+  final bool redeemed;
+  final String? code;
+  final String? message;
+}
+
+/// [CustomerRepository.updateProfile]'s full result — the updated user
+/// plus, only when a referral code was submitted, its redemption outcome.
+class UpdateProfileResult {
+  const UpdateProfileResult({required this.user, this.referralOutcome});
+
+  final UserModel user;
+  final ReferralRedemptionResult? referralOutcome;
 }

@@ -349,7 +349,7 @@ class MockCustomerRepository implements CustomerRepository {
   }
 
   @override
-  Future<UserModel> updateProfile(UpdateProfileRequest request) async {
+  Future<UpdateProfileResult> updateProfile(UpdateProfileRequest request) async {
     await _delay();
     _mockUser = _mockUser.copyWith(
       name: request.name ?? _mockUser.name,
@@ -357,7 +357,20 @@ class MockCustomerRepository implements CustomerRepository {
       avatarUrl: request.avatarUrl ?? _mockUser.avatarUrl,
       updatedAt: DateTime.now(),
     );
-    return _mockUser;
+
+    ReferralRedemptionResult? referralOutcome;
+    final code = request.referralCode?.trim();
+    if (code != null && code.isNotEmpty) {
+      referralOutcome = code.toUpperCase() == 'INVALID'
+          ? const ReferralRedemptionResult(
+              success: false,
+              code: 'REFERRAL_CODE_INVALID',
+              message: "That referral code doesn't look right.",
+            )
+          : const ReferralRedemptionResult(success: true, redeemed: true);
+    }
+
+    return UpdateProfileResult(user: _mockUser, referralOutcome: referralOutcome);
   }
 
   // ── Addresses ─────────────────────────────────────────────────────────────
@@ -579,6 +592,54 @@ class MockCustomerRepository implements CustomerRepository {
   }) async {
     await _delay(fast: true);
     return const WalletPaymentResult(success: true);
+  }
+
+  // ── Referrals (mock) ──────────────────────────────────────────────────────
+
+  @override
+  Future<ReferralSummary> getReferralSummary() async {
+    await _delay(fast: true);
+    return const ReferralSummary(
+      referralCode: 'DEMO1234',
+      totalReferred: 2,
+      pending: 1,
+      completed: 1,
+      totalWalletEarned: 50,
+      activeProgram: ReferralActiveProgram(
+        name: 'Refer & Earn',
+        referrerRewardType: 'WALLET_CREDIT',
+        referrerRewardAmount: 50,
+        refereeRewardType: 'WALLET_CREDIT',
+        refereeRewardAmount: 50,
+        termsText: 'You and your friend each get ₹50 in wallet credit once they complete their first order.',
+      ),
+    );
+  }
+
+  @override
+  Future<List<ReferralHistoryItem>> getReferralHistory() async {
+    await _delay(fast: true);
+    final now = DateTime.now();
+    return [
+      ReferralHistoryItem(
+        id: 'ref_mock_1',
+        status: 'COMPLETED',
+        refereeName: 'Priya',
+        refereePhoneMasked: '••••••4321',
+        refereeSignedUpAt: now.subtract(const Duration(days: 5)),
+        refereeFirstOrderCompletedAt: now.subtract(const Duration(days: 3)),
+        referrerRewardStatus: 'GRANTED',
+        referrerRewardGrantedAt: now.subtract(const Duration(days: 3)),
+      ),
+      ReferralHistoryItem(
+        id: 'ref_mock_2',
+        status: 'PENDING_FIRST_ORDER',
+        refereeName: 'Arjun',
+        refereePhoneMasked: '••••••8765',
+        refereeSignedUpAt: now.subtract(const Duration(days: 1)),
+        referrerRewardStatus: 'PENDING',
+      ),
+    ];
   }
 
   // ── Pickup Slots (mock) ───────────────────────────────────────────────────

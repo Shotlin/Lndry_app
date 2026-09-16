@@ -223,23 +223,34 @@ class AuthNotifier extends StateNotifier<AuthState> {
   // ── Profile completion ─────────────────────────────────────────────────────
 
   /// Saves new customer profile and advances to location-permission.
-  Future<void> completeProfile({
+  /// Returns the referral code's redemption outcome (null if [referralCode]
+  /// was left blank) — an invalid/already-used code never blocks profile
+  /// completion itself, so callers should show it as a soft notice, not an
+  /// error that undoes navigation.
+  Future<ReferralRedemptionResult?> completeProfile({
     required String name,
     required String email,
+    String? referralCode,
   }) async {
     final prev = state;
     final String? phone;
     if (prev is AuthNeedsProfileSetup) {
       phone = prev.phone;
     } else {
-      return;
+      return null;
     }
 
     state = const AuthLoading();
     try {
       final cleanEmail = email.trim().isEmpty ? null : email.trim();
+      final cleanReferralCode =
+          (referralCode?.trim().isEmpty ?? true) ? null : referralCode!.trim();
       // Update profile on backend
-      await _repo.updateProfile(UpdateProfileRequest(name: name, email: cleanEmail));
+      final result = await _repo.updateProfile(UpdateProfileRequest(
+        name: name,
+        email: cleanEmail,
+        referralCode: cleanReferralCode,
+      ));
 
       final user = UserModel(
         id: '',
@@ -255,11 +266,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       try {
         persisted = await _repo.getProfile();
       } catch (_) {
-        persisted = user;
+        persisted = result.user.id.isNotEmpty ? result.user : user;
       }
 
       await _saveUserPrefs(persisted);
       state = AuthAuthenticated(persisted);
+      return result.referralOutcome;
     } catch (e) {
       state = prev;
       rethrow;
@@ -308,11 +320,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (prev is! AuthAuthenticated) return;
 
     try {
-      final updated = await _repo.updateProfile(
+      final result = await _repo.updateProfile(
         UpdateProfileRequest(name: name, email: email),
       );
-      await _saveUserPrefs(updated);
-      state = AuthAuthenticated(updated);
+      await _saveUserPrefs(result.user);
+      state = AuthAuthenticated(result.user);
     } catch (e) {
       // Fallback: update locally if API fails
       final updated = prev.user.copyWith(name: name, email: email);

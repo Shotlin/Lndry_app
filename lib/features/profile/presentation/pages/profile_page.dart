@@ -297,6 +297,17 @@ class ProfilePage extends ConsumerWidget {
                       ),
                       Divider(height: 1, color: AppColors.outline),
                       _SettingsTile(
+                        icon: AppIcons.gift,
+                        label: 'Refer & Earn',
+                        onTap: () => requireAuthenticated(
+                          context: context,
+                          ref: ref,
+                          returnTo: AppRoutes.referEarn,
+                          action: (context, _) => context.push(AppRoutes.referEarn),
+                        ),
+                      ),
+                      Divider(height: 1, color: AppColors.outline),
+                      _SettingsTile(
                         icon: AppIcons.settings,
                         label: 'Settings',
                         onTap: () => context.push(AppRoutes.settings),

@@ -50,6 +50,7 @@ abstract final class AppRoutes {
   static const String help = '/profile/help';
   static const String offers = '/profile/offers';
   static const String wallet = '/profile/wallet';
+  static const String referEarn = '/profile/refer-earn';
 }
 
 /// LNDRY Route Name Constants (for named navigation via context.goNamed).
@@ -88,4 +89,5 @@ abstract final class AppRouteNames {
   static const String help = 'help';
   static const String offers = 'offers';
   static const String wallet = 'wallet';
+  static const String referEarn = 'refer-earn';
 }

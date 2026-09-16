@@ -23,12 +23,14 @@ class _ProfileSetupPageState extends ConsumerState<ProfileSetupPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
+  final _referralCodeController = TextEditingController();
   bool _isLoading = false;
 
   @override
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
+    _referralCodeController.dispose();
     super.dispose();
   }
 
@@ -36,12 +38,21 @@ class _ProfileSetupPageState extends ConsumerState<ProfileSetupPage> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
-      await ref.read(authProvider.notifier).completeProfile(
-            name: _nameController.text.trim(),
-            email: _emailController.text.trim(),
-          );
+      final referralOutcome =
+          await ref.read(authProvider.notifier).completeProfile(
+                name: _nameController.text.trim(),
+                email: _emailController.text.trim(),
+                referralCode: _referralCodeController.text.trim(),
+              );
       // AuthAuthenticated -> the router's global redirect sends the user to
-      // Home automatically; no explicit navigation needed here.
+      // Home automatically; no explicit navigation needed here. An invalid
+      // referral code never blocks that — just a friendly heads-up on top.
+      if (mounted && referralOutcome != null && !referralOutcome.success) {
+        AppSnackBar.showError(
+          context,
+          referralOutcome.message ?? "That referral code didn't work.",
+        );
+      }
     } catch (e) {
       if (mounted) AppSnackBar.showError(context, e.toString());
     } finally {
@@ -127,6 +138,14 @@ class _ProfileSetupPageState extends ConsumerState<ProfileSetupPage> {
                         keyboardType: TextInputType.emailAddress,
                         prefixIcon: const Icon(AppIcons.email),
                         validator: Validators.emailOptional,
+                      ),
+                      const Gap(24),
+                      AppTextField(
+                        label: 'Referral Code',
+                        hint: 'Have a friend\'s code? Enter it here (optional)',
+                        controller: _referralCodeController,
+                        textCapitalization: TextCapitalization.characters,
+                        prefixIcon: const Icon(AppIcons.gift),
                       ),
                       const Gap(48),
                       AppButton(

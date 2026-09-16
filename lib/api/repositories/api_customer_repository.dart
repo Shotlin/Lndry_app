@@ -463,15 +463,28 @@ class ApiCustomerRepository implements CustomerRepository {
   }
 
   @override
-  Future<UserModel> updateProfile(UpdateProfileRequest request) async {
+  Future<UpdateProfileResult> updateProfile(UpdateProfileRequest request) async {
     final data = <String, dynamic>{};
     if (request.name != null) data['name'] = request.name;
     if (request.email != null) data['email'] = request.email;
     if (request.avatarUrl != null) data['avatar_url'] = request.avatarUrl;
+    if (request.referralCode != null) data['referralCode'] = request.referralCode;
 
     final resp = await _dio.put(ApiEndpoints.userProfile, data: data);
-    final json = _extractData(resp.data as Map<String, dynamic>);
-    return _parseUser(json);
+    final body = resp.data as Map<String, dynamic>;
+    final json = _extractData(body);
+    final referralJson = body['referral'] as Map<String, dynamic>?;
+    return UpdateProfileResult(
+      user: _parseUser(json),
+      referralOutcome: referralJson == null
+          ? null
+          : ReferralRedemptionResult(
+              success: referralJson['success'] as bool? ?? false,
+              redeemed: referralJson['redeemed'] as bool? ?? false,
+              code: referralJson['code'] as String?,
+              message: referralJson['message'] as String?,
+            ),
+    );
   }
 
   // ── Addresses ────────────────────────────────────────────────────────────────
@@ -788,6 +801,58 @@ class ApiCustomerRepository implements CustomerRepository {
     } on ApiException catch (e) {
       return WalletPaymentResult(success: false, message: e.message);
     }
+  }
+
+  // ── Referrals ──────────────────────────────────────────────────────────────
+
+  @override
+  Future<ReferralSummary> getReferralSummary() async {
+    final resp = await _dio.get(ApiEndpoints.referralsMe);
+    final data = _extractData(resp.data as Map<String, dynamic>);
+    final programJson = data['activeProgram'] as Map<String, dynamic>?;
+    return ReferralSummary(
+      referralCode: data['referralCode'] as String?,
+      totalReferred: (data['totalReferred'] as num?)?.toInt() ?? 0,
+      pending: (data['pending'] as num?)?.toInt() ?? 0,
+      completed: (data['completed'] as num?)?.toInt() ?? 0,
+      totalWalletEarned: (data['totalWalletEarned'] as num?)?.toDouble() ?? 0.0,
+      activeProgram: programJson == null
+          ? null
+          : ReferralActiveProgram(
+              name: programJson['name'] as String? ?? '',
+              referrerRewardType: programJson['referrerRewardType'] as String? ?? '',
+              referrerRewardAmount: (programJson['referrerRewardAmount'] as num?)?.toDouble(),
+              referrerRewardCount: (programJson['referrerRewardCount'] as num?)?.toInt(),
+              refereeRewardType: programJson['refereeRewardType'] as String? ?? '',
+              refereeRewardAmount: (programJson['refereeRewardAmount'] as num?)?.toDouble(),
+              refereeRewardCount: (programJson['refereeRewardCount'] as num?)?.toInt(),
+              termsText: programJson['termsText'] as String?,
+            ),
+    );
+  }
+
+  @override
+  Future<List<ReferralHistoryItem>> getReferralHistory() async {
+    final resp = await _dio.get(ApiEndpoints.referralsHistory);
+    final list = _extractList(resp.data as Map<String, dynamic>);
+    return list.map((e) {
+      final json = e as Map<String, dynamic>;
+      return ReferralHistoryItem(
+        id: json['id'] as String? ?? '',
+        status: json['status'] as String? ?? 'PENDING_FIRST_ORDER',
+        refereeName: json['refereeName'] as String?,
+        refereePhoneMasked: json['refereePhoneMasked'] as String?,
+        refereeSignedUpAt:
+            DateTime.tryParse(json['refereeSignedUpAt'] as String? ?? '') ?? DateTime.now(),
+        refereeFirstOrderCompletedAt: json['refereeFirstOrderCompletedAt'] != null
+            ? DateTime.tryParse(json['refereeFirstOrderCompletedAt'] as String)
+            : null,
+        referrerRewardStatus: json['referrerRewardStatus'] as String? ?? 'PENDING',
+        referrerRewardGrantedAt: json['referrerRewardGrantedAt'] != null
+            ? DateTime.tryParse(json['referrerRewardGrantedAt'] as String)
+            : null,
+      );
+    }).toList();
   }
 
   // ── Pickup Slots ──────────────────────────────────────────────────────────

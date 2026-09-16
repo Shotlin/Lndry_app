@@ -43,6 +43,7 @@ import '../../features/profile/presentation/pages/settings_page.dart';
 import '../../features/profile/presentation/pages/help_page.dart';
 import '../../features/offers/presentation/pages/offers_page.dart';
 import '../../features/wallet/presentation/pages/wallet_page.dart';
+import '../../features/referrals/presentation/pages/refer_earn_page.dart';
 
 // ── Custom Transitions ────────────────────────────────────────────────────────
 
@@ -423,6 +424,12 @@ final List<RouteBase> _routes = [
               name: AppRouteNames.wallet,
               pageBuilder: (c, s) => _slideTransition(
                   context: c, state: s, child: const WalletPage()),
+            ),
+            GoRoute(
+              path: 'refer-earn',
+              name: AppRouteNames.referEarn,
+              pageBuilder: (c, s) => _slideTransition(
+                  context: c, state: s, child: const ReferEarnPage()),
             ),
           ],
         ),

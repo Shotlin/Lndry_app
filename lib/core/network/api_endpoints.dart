@@ -75,6 +75,10 @@ abstract final class ApiEndpoints {
   static const String walletTopUp = '/wallet/topup';
   static const String walletTopUpVerify = '/wallet/topup/verify';
 
+  // ── Referrals ───────────────────────────────────────────────────────────────
+  static const String referralsMe = '/referrals/me';
+  static const String referralsHistory = '/referrals/me/history';
+
   // ── Addresses ───────────────────────────────────────────────────────────────
   static const String addresses = '/addresses';
   static String addressById(String id) => '/addresses/$id';
