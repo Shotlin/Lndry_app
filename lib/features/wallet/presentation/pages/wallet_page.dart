@@ -130,17 +130,22 @@ class _WalletPageState extends ConsumerState<WalletPage> {
       ),
       primaryActionLabel: 'Proceed to Pay',
       onPrimaryAction: () {
+        // Validate here, before popping, so a blank/invalid amount keeps the
+        // sheet open with a visible error instead of silently closing with
+        // nothing happening — an empty field previously parsed to null,
+        // which the caller below only ever flagged when the value was
+        // non-null but out of range, so a blank submission looked exactly
+        // like "Add Money" doing nothing at all.
         final value = double.tryParse(controller.text.trim());
+        if (value == null || value < 10 || value > 10000) {
+          AppSnackBar.showError(context, 'Enter an amount between ₹10 and ₹10,000.');
+          return;
+        }
         Navigator.of(context).pop(value);
       },
     );
 
-    if (amount == null || amount < 10 || amount > 10000) {
-      if (amount != null && mounted) {
-        AppSnackBar.showError(context, 'Enter an amount between ₹10 and ₹10,000.');
-      }
-      return;
-    }
+    if (amount == null) return;
     await _startTopUp(amount);
   }
 
