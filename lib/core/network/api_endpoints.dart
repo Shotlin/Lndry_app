@@ -77,6 +77,9 @@ abstract final class ApiEndpoints {
   static const String walletTransactions = '/wallet/transactions';
   static const String walletTopUp = '/wallet/topup';
   static const String walletTopUpVerify = '/wallet/topup/verify';
+  // A vendor's own POS counter proposing to redeem part of this wallet's
+  // balance against an in-person sale — see wallet-redemption.routes.js.
+  static const String walletRedemptionPending = '/wallet/redemption-requests/pending';
 
   // ── Referrals ───────────────────────────────────────────────────────────────
   static const String referralsMe = '/referrals/me';

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/home/presentation/providers/home_providers.dart';
+import '../../features/wallet/presentation/providers/wallet_providers.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/order_sync_provider.dart';
 import '../constants/app_constants.dart';
@@ -73,7 +74,11 @@ class _OrderSyncListenerState extends ConsumerState<OrderSyncListener> {
           token: token,
           onOrderStatus: _handleOrderEvent,
           onNotification: (data) {
-            _handleOrderEvent(data);
+            if (data['type'] == 'WALLET_REDEMPTION_REQUESTED') {
+              ref.invalidate(pendingWalletRedemptionProvider);
+            } else {
+              _handleOrderEvent(data);
+            }
             final title = data['title'] as String? ?? 'Order update';
             final body = data['body'] as String? ?? '';
             ref.read(orderNotificationEventProvider.notifier).state =

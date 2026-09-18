@@ -783,6 +783,15 @@ class ApiCustomerRepository implements CustomerRepository {
   }
 
   @override
+  Future<PendingWalletRedemption?> getPendingWalletRedemption() async {
+    final resp = await _dio.get(ApiEndpoints.walletRedemptionPending);
+    final body = resp.data as Map<String, dynamic>;
+    final data = body['data'];
+    if (data == null) return null;
+    return PendingWalletRedemption.fromJson(data as Map<String, dynamic>);
+  }
+
+  @override
   Future<List<WalletTransactionModel>> getWalletTransactions() async {
     final resp = await _dio.get(ApiEndpoints.walletTransactions);
     final list = _extractList(resp.data as Map<String, dynamic>);

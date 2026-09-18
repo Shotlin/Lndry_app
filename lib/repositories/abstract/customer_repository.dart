@@ -172,6 +172,10 @@ abstract interface class CustomerRepository {
   /// Wallet transaction history, most recent first.
   Future<List<WalletTransactionModel>> getWalletTransactions();
 
+  /// A vendor's own POS counter proposing to redeem part of this wallet's
+  /// balance against an in-person sale, if one is currently pending.
+  Future<PendingWalletRedemption?> getPendingWalletRedemption();
+
   /// Step 1: create a Razorpay order to top up the wallet.
   Future<WalletTopUpOrderResult> createWalletTopUp(double amount);
 
@@ -473,6 +477,46 @@ class WalletModel {
 
   final String id;
   final double balance;
+}
+
+/// A wallet redemption a vendor's POS has proposed against this customer's
+/// real balance, awaiting the customer to read the code back to the
+/// vendor. See Lndry_backend's wallet-redemption module (migration 112).
+class PendingWalletRedemption {
+  const PendingWalletRedemption({
+    required this.requestId,
+    required this.amountPaise,
+    required this.vendorName,
+    required this.otp,
+    required this.expiresAt,
+    required this.attemptsRemaining,
+  });
+
+  final String requestId;
+  final int amountPaise;
+  final String vendorName;
+
+  /// The one-time code to read aloud to the vendor — null only in the
+  /// unlikely case the server-side Redis copy already expired separately
+  /// from the request row itself.
+  final String? otp;
+  final DateTime expiresAt;
+  final int attemptsRemaining;
+
+  double get amount => amountPaise / 100;
+  bool get isExpired => DateTime.now().isAfter(expiresAt);
+
+  factory PendingWalletRedemption.fromJson(Map<String, dynamic> json) {
+    return PendingWalletRedemption(
+      requestId: json['requestId'] as String? ?? '',
+      amountPaise: (json['amountPaise'] as num?)?.toInt() ?? 0,
+      vendorName: json['vendorName'] as String? ?? 'the store',
+      otp: json['otp'] as String?,
+      expiresAt: DateTime.tryParse(json['expiresAt'] as String? ?? '') ??
+          DateTime.now(),
+      attemptsRemaining: (json['attemptsRemaining'] as num?)?.toInt() ?? 0,
+    );
+  }
 }
 
 /// A single wallet ledger entry.

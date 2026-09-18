@@ -571,6 +571,12 @@ class MockCustomerRepository implements CustomerRepository {
   }
 
   @override
+  Future<PendingWalletRedemption?> getPendingWalletRedemption() async {
+    await _delay(fast: true);
+    return null;
+  }
+
+  @override
   Future<WalletTopUpOrderResult> createWalletTopUp(double amount) async {
     await _delay();
     return WalletTopUpOrderResult(

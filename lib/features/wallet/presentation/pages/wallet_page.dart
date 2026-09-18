@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 
 import '../../../../config/env.dart';
@@ -176,6 +178,7 @@ class _WalletPageState extends ConsumerState<WalletPage> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: EdgeInsets.all(AppSpacing.pagePaddingH.w),
                   children: [
+                    const _PendingWalletRedemptionBanner(),
                     walletAsync.when(
                       data: (wallet) => _WalletBalanceCard(
                         balance: wallet.balance,
@@ -292,6 +295,98 @@ class _WalletBalanceCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Shows a vendor's pending in-person wallet redemption at the very top of
+/// My Wallet — the customer reads the code aloud to confirm it themselves.
+/// Renders nothing when there's no pending request (the common case).
+class _PendingWalletRedemptionBanner extends ConsumerStatefulWidget {
+  const _PendingWalletRedemptionBanner();
+
+  @override
+  ConsumerState<_PendingWalletRedemptionBanner> createState() =>
+      _PendingWalletRedemptionBannerState();
+}
+
+class _PendingWalletRedemptionBannerState
+    extends ConsumerState<_PendingWalletRedemptionBanner> {
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pendingAsync = ref.watch(pendingWalletRedemptionProvider);
+    return pendingAsync.when(
+      data: (pending) {
+        if (pending == null || pending.isExpired) {
+          return const SizedBox.shrink();
+        }
+        final remaining = pending.expiresAt.difference(DateTime.now());
+        final minutes = remaining.inMinutes.clamp(0, 99);
+        final seconds = (remaining.inSeconds % 60).clamp(0, 59);
+        return Container(
+          width: double.infinity,
+          margin: EdgeInsets.only(bottom: AppSpacing.sectionGap.h),
+          padding: EdgeInsets.all(AppSpacing.cardPadding.w),
+          decoration: BoxDecoration(
+            color: AppColors.warning.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(AppRadius.card.r),
+            border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${pending.vendorName} wants to redeem ₹${pending.amount.toStringAsFixed(2)}',
+                style: AppTypography.titleSmall,
+              ),
+              Gap(4.h),
+              Text(
+                'Read this code to the store staff to confirm — never share it anywhere else.',
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.onSurfaceVariant,
+                ),
+              ),
+              Gap(AppSpacing.sm.h),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    pending.otp ?? '······',
+                    style: AppTypography.headlineMedium.copyWith(
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 6,
+                    ),
+                  ),
+                  Text(
+                    'Expires in ${minutes}m ${seconds.toString().padLeft(2, '0')}s',
+                    style: AppTypography.labelSmall.copyWith(
+                      color: AppColors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 }
