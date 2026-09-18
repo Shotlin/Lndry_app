@@ -1,6 +1,38 @@
 import 'package:flutter/widgets.dart';
+import '../../models/models.dart';
 
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+
+/// A location just confirmed on the map step, carried to the form-only
+/// second step (see [MapAddressArgs.prefilledLocation]) — everything a
+/// reverse-geocode already resolved, so the form step never shows a map,
+/// only the remaining flat/house number the geocoder could never know.
+typedef MapPrefilledLocation = ({
+  double lat,
+  double lng,
+  String formattedAddress,
+  String city,
+  String state,
+  String pincode,
+});
+
+/// `extra` payload for [AppRoutes.mapAddress] — omit entirely for a fresh
+/// add (map shown). Pass [existingAddress] to skip the map and prefill the
+/// form from an already-saved address, with [isEditingExisting] only
+/// controlling the heading ("Edit Address" vs "Select Delivery Location").
+/// Pass [prefilledLocation] instead to skip the map for a *new*,
+/// not-yet-saved address whose coordinates were just confirmed on the map
+/// step — unlike [existingAddress], this still creates a new address on
+/// save rather than updating one. [requireFlatNumber] should only ever be
+/// true for the checkout completeness guard — every other entry point
+/// (signup/location capture, saved-address add/edit) must allow saving
+/// with an empty flat/house number.
+typedef MapAddressArgs = ({
+  AddressModel? existingAddress,
+  bool isEditingExisting,
+  bool requireFlatNumber,
+  MapPrefilledLocation? prefilledLocation,
+});
 
 /// LNDRY Route Path Constants
 /// Matches the canonical route inventory in spec Appendix B.

@@ -36,11 +36,20 @@ class OrderRevisionSheet {
       title: 'Your Order Total Was Updated',
       isScrollControlled: true,
       primaryActionLabel: 'Accept New Total',
-      onPrimaryAction: () =>
-          Navigator.of(context).pop(ReconciliationDecision.accept),
+      // AppBottomSheet.show pushes onto the ROOT navigator
+      // (useRootNavigator: true) so it stays open above whichever tab's
+      // own nested Navigator this page happens to live in (OrderDetailsPage
+      // is a child route of the Orders tab's StatefulShellBranch). A plain
+      // Navigator.of(context).pop() here resolves to that tab's own
+      // Navigator instead — silently popping OrderDetailsPage off its
+      // stack while the sheet, being on a different Navigator entirely,
+      // never closes and this Future never resolves. Must target root
+      // explicitly to actually dismiss the sheet.
+      onPrimaryAction: () => Navigator.of(context, rootNavigator: true)
+          .pop(ReconciliationDecision.accept),
       secondaryActionLabel: 'Reject',
-      onSecondaryAction: () =>
-          Navigator.of(context).pop(ReconciliationDecision.reject),
+      onSecondaryAction: () => Navigator.of(context, rootNavigator: true)
+          .pop(ReconciliationDecision.reject),
       child: _RevisionContent(reconciliation: reconciliation, order: order),
     );
   }

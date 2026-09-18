@@ -128,7 +128,9 @@ class _VendorListingPageState extends ConsumerState<VendorListingPage> {
       primaryActionLabel: 'Apply Filters',
       onPrimaryAction: () {
         _applyFiltersAndSort();
-        Navigator.of(context).pop();
+        // AppBottomSheet.show uses useRootNavigator: true — must pop the
+        // same navigator explicitly (see order_revision_sheet.dart).
+        Navigator.of(context, rootNavigator: true).pop();
       },
       secondaryActionLabel: 'Clear All',
       onSecondaryAction: () {
@@ -138,7 +140,7 @@ class _VendorListingPageState extends ConsumerState<VendorListingPage> {
           _maxDistance = 10.0;
         });
         _applyFiltersAndSort();
-        Navigator.of(context).pop();
+        Navigator.of(context, rootNavigator: true).pop();
       },
       child: StatefulBuilder(
         builder: (context, setModalState) => Column(

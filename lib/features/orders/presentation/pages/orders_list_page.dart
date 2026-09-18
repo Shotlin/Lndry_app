@@ -187,7 +187,12 @@ class _ActiveOrderTileState extends ConsumerState<_ActiveOrderTile> {
       primaryActionLabel: 'Confirm Cancellation',
       onPrimaryAction: () {
         if (selectedReason != null && selectedReason!.isNotEmpty) {
-          Navigator.of(context).pop(selectedReason);
+          // AppBottomSheet.show pushes onto the ROOT navigator
+          // (useRootNavigator: true), separate from this page's own
+          // Orders-tab-branch Navigator — a non-root pop here is either a
+          // no-op (this page is that branch's root route) or pops the
+          // wrong thing, and the sheet never actually closes.
+          Navigator.of(context, rootNavigator: true).pop(selectedReason);
         }
       },
       child: StatefulBuilder(
@@ -283,7 +288,7 @@ class _ActiveOrderTileState extends ConsumerState<_ActiveOrderTile> {
               Gap(AppSpacing.sm.h),
               Expanded(
                 child: Text(
-                  'Pickup: ${order.scheduledPickupAt?.toDayDate ?? "Scheduled"}',
+                  'Pickup: ${order.pickupSummary}',
                   style: AppTypography.bodySmall,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

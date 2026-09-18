@@ -1,7 +1,7 @@
 name: lndry
 description: "LNDRY — A production-grade laundry marketplace connecting customers, vendors, and delivery partners."
 publish_to: "none"
-version: 1.0.0+1
+version: 1.0.2+3
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -52,7 +52,11 @@ dependencies:
   connectivity_plus: ^6.0.3
   geocoding: ^4.0.0
   geolocator: ^12.0.0
-  google_maps_flutter: ^2.9.0
+  # Used only for requestService() — the native in-app "Turn on Location
+  # Accuracy" dialog on Android that geolocator has no equivalent for.
+  location: ^6.0.2
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
   razorpay_flutter: ^1.4.0
   speech_to_text: ^7.0.0
 
@@ -75,6 +79,7 @@ dependencies:
   permission_handler: ^11.3.1
   image_picker: ^1.1.2
   gap: ^3.0.1
+  share_plus: ^12.0.2
 
 dev_dependencies:
   flutter_test:
@@ -102,10 +107,11 @@ flutter:
     - assets/images/
     - assets/images/img/
     - assets/images/logo/
+    - assets/images/wallet/
+    - assets/images/referrals/
     - assets/images/banners/
     - assets/images/onboarding/
     - assets/icons/
-    - assets/icons/services/
     - assets/illustrations/
     - assets/lottie/
     - assets/svg/

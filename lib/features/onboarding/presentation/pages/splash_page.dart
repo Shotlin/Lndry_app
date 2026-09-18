@@ -1,6 +1,7 @@
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/design/design_system.dart';
 import '../../../../core/services/storage_service.dart';
+import '../../../../core/widgets/app_skeleton.dart';
 import '../../../../providers/auth_provider.dart';
 
 class SplashPage extends ConsumerStatefulWidget {
@@ -97,21 +98,65 @@ class _SplashPageState extends ConsumerState<SplashPage>
     });
 
     return Scaffold(
-      body: AnimatedBuilder(
-        animation: _logoController,
-        builder: (context, child) => Opacity(
-          opacity: _logoOpacity.value,
-          child: child,
-        ),
-        child: SizedBox.expand(
-          child: Image.asset(
-            'assets/images/SplashScreen.png',
-            fit: BoxFit.cover,
-            filterQuality: FilterQuality.high,
-            semanticLabel: 'LNDRY splash screen',
+      backgroundColor: const Color(0xFFFCFCFF),
+      body: SafeArea(
+        child: AnimatedBuilder(
+          animation: _logoController,
+          builder: (context, child) => Opacity(
+            opacity: _logoOpacity.value,
+            child: child,
           ),
+          child: const _StartupSkeleton(),
         ),
       ),
+    );
+  }
+}
+
+class _StartupSkeleton extends StatelessWidget {
+  const _StartupSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth > 600;
+        return SingleChildScrollView(
+          padding: EdgeInsets.symmetric(horizontal: wide ? 64 : 24, vertical: 28),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  AppSkeleton.circle(size: 48),
+                  SizedBox(width: 12),
+                  AppSkeleton.line(width: 112, height: 22),
+                ],
+              ),
+              SizedBox(height: 44),
+              AppSkeleton.line(width: 220, height: 28),
+              SizedBox(height: 12),
+              AppSkeleton.line(width: 290, height: 16),
+              SizedBox(height: 28),
+              AppSkeleton.rectangular(height: 190, borderRadius: 28),
+              SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(child: AppSkeleton.rectangular(height: 118, borderRadius: 20)),
+                  SizedBox(width: 12),
+                  Expanded(child: AppSkeleton.rectangular(height: 118, borderRadius: 20)),
+                  SizedBox(width: 12),
+                  Expanded(child: AppSkeleton.rectangular(height: 118, borderRadius: 20)),
+                ],
+              ),
+              SizedBox(height: 28),
+              AppSkeleton.rectangular(height: 66, borderRadius: 36),
+              SizedBox(height: 14),
+              AppSkeleton.rectangular(height: 66, borderRadius: 24),
+            ],
+          ),
+        );
+      },
     );
   }
 }

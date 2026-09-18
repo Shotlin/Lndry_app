@@ -1,6 +1,12 @@
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geocoding/geocoding.dart' as geocoding;
 import 'package:geolocator/geolocator.dart';
+
+import '../../core/network/network.dart';
+import '../../core/utils/location_service_resolver.dart';
+import '../../core/utils/resilient_location.dart';
 
 /// Base type for failures during [LocationCaptureService.captureCurrentLocation].
 sealed class LocationCaptureException implements Exception {
@@ -60,17 +66,27 @@ class CapturedLocation {
 /// Detects the device's current GPS location and resolves it to a usable
 /// address via reverse geocoding.
 ///
-/// This mirrors the chain already proven in `map_address_page.dart`'s
-/// `_moveToCurrentLocation()`/`_reverseGeocode()`, kept as a standalone
-/// implementation (see plan notes) rather than a shared extraction, so that
-/// page's already-stable, untested logic is never touched by this feature.
+/// Mirrors the chain in `map_address_page.dart`'s
+/// `_moveToCurrentLocation()`/`_reverseGeocode()` — same GPS-off auto-enable
+/// dialog, same tiered position fetch, same Ola-Maps-first/OS-geocoder-
+/// fallback reverse geocode — kept as a standalone implementation rather
+/// than a shared extraction so that page's own logic is never touched by
+/// this feature, but deliberately kept behaviorally identical: a user
+/// hitting "enable location" from the home screen's sheet should see
+/// exactly the same native turn-on flow as from the map picker, not a
+/// dead-end error message.
 class LocationCaptureService {
-  const LocationCaptureService();
+  const LocationCaptureService(this._dio);
+
+  final Dio _dio;
 
   Future<CapturedLocation> captureCurrentLocation() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    var serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      throw const LocationServiceOffException();
+      serviceEnabled = await requestEnableLocationService();
+      if (!serviceEnabled) {
+        throw const LocationServiceOffException();
+      }
     }
 
     var permission = await Geolocator.checkPermission();
@@ -84,20 +100,78 @@ class LocationCaptureService {
       throw const LocationPermissionDeniedException();
     }
 
-    final position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
+    final position = await getResilientCurrentPosition();
+    debugPrint('[LocationCapture] position lat=${position.latitude} '
+        'lng=${position.longitude} accuracy=${position.accuracy}m '
+        'age=${DateTime.now().difference(position.timestamp)}');
 
+    final viaOla = await _reverseGeocodeViaOla(position);
+    final captured = viaOla ?? await _reverseGeocodeViaOsGeocoder(position);
+    debugPrint('[LocationCapture] resolved via=${viaOla != null ? 'ola' : 'os'} '
+        'line1="${captured.line1}" city="${captured.city}" '
+        'pincode="${captured.pincode}" isUsable=${captured.isUsable}');
+
+    if (!captured.isUsable) {
+      throw const ReverseGeocodeFailedException();
+    }
+
+    return captured;
+  }
+
+  Future<CapturedLocation?> _reverseGeocodeViaOla(Position position) async {
+    try {
+      final response = await _dio.get<dynamic>(
+        '/maps/ola/reverse-geocode',
+        queryParameters: {'lat': position.latitude, 'lng': position.longitude},
+      );
+      final body = response.data as Map<String, dynamic>? ?? {};
+      final data = body['data'] as Map<String, dynamic>?;
+      if (data == null || data.isEmpty) return null;
+
+      final city = (data['city'] as String?)?.trim() ?? '';
+      final formattedAddress = (data['formatted_address'] as String?)?.trim() ?? '';
+      if (city.isEmpty && formattedAddress.isEmpty) return null;
+
+      // `landmark` is only present for an actual named point of interest —
+      // an ordinary residential/street address (the common case) has none,
+      // which used to leave line1 empty and fail isUsable even though Ola
+      // had genuinely resolved a perfectly good address. Fall back to the
+      // locality, then to the most specific segment of the formatted
+      // address, before giving up.
+      final line1 = _firstNonEmpty([
+        data['landmark'] as String?,
+        data['locality'] as String?,
+        formattedAddress.split(',').first,
+      ]);
+
+      return CapturedLocation(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        line1: line1,
+        formattedAddress: formattedAddress,
+        city: city,
+        state: (data['state'] as String?)?.trim() ?? city,
+        pincode: (data['postal_code'] as String?)?.trim() ?? '',
+      );
+    } catch (e) {
+      debugPrint('[LocationCapture] Ola Maps reverse-geocode failed, falling back: $e');
+      return null;
+    }
+  }
+
+  Future<CapturedLocation> _reverseGeocodeViaOsGeocoder(Position position) async {
     List<geocoding.Placemark> places;
     try {
       places = await geocoding.placemarkFromCoordinates(
         position.latitude,
         position.longitude,
       );
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[LocationCapture] OS geocoder threw: $e');
       throw const ReverseGeocodeFailedException();
     }
     if (places.isEmpty) {
+      debugPrint('[LocationCapture] OS geocoder returned no placemarks');
       throw const ReverseGeocodeFailedException();
     }
 
@@ -128,7 +202,7 @@ class LocationCaptureService {
     ].where((part) => part != null && part.trim().isNotEmpty).join(', ');
     final pincode = place.postalCode?.trim() ?? '';
 
-    final captured = CapturedLocation(
+    return CapturedLocation(
       latitude: position.latitude,
       longitude: position.longitude,
       line1: line1,
@@ -137,12 +211,6 @@ class LocationCaptureService {
       state: state,
       pincode: pincode,
     );
-
-    if (!captured.isUsable) {
-      throw const ReverseGeocodeFailedException();
-    }
-
-    return captured;
   }
 
   /// Whether the device currently has location services on AND permission
@@ -166,5 +234,5 @@ class LocationCaptureService {
 }
 
 final locationCaptureServiceProvider = Provider<LocationCaptureService>(
-  (ref) => const LocationCaptureService(),
+  (ref) => LocationCaptureService(ref.read(dioClientProvider)),
 );

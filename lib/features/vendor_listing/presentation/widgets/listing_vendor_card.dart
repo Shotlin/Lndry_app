@@ -21,7 +21,7 @@ class ListingVendorCard extends StatelessWidget {
         ? 'Nearby'
         : '${vendor.distanceKm!.toStringAsFixed(1)} km';
 
-    return AppCard.elevated(
+    return AppCard.outlined(
       onTap: onTap,
       padding: EdgeInsets.zero,
       child: Column(
@@ -161,17 +161,36 @@ class ListingVendorCard extends StatelessWidget {
                 const AppDivider(),
                 const Gap(12),
 
-                // Pickup & Delivery availability
+                // Pickup & Delivery availability + a clear "view partner"
+                // affordance so the card reads as tappable, not just static.
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _AvailabilityChip(
-                      label: 'Pickup',
-                      isAvailable: vendor.isOpen,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _AvailabilityChip(
+                          label: 'Pickup',
+                          isAvailable: vendor.isOpen,
+                        ),
+                        const Gap(8),
+                        _AvailabilityChip(
+                          label: 'Delivery',
+                          isAvailable: vendor.isOpen,
+                        ),
+                      ],
                     ),
-                    const Gap(8),
-                    _AvailabilityChip(
-                      label: 'Delivery',
-                      isAvailable: vendor.isOpen,
+                    Container(
+                      padding: EdgeInsets.all(6.r),
+                      decoration: BoxDecoration(
+                        color: AppColors.black.withValues(alpha: 0.06),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        AppIcons.forward,
+                        color: AppColors.black,
+                        size: 12.r,
+                      ),
                     ),
                   ],
                 ),

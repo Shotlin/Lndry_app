@@ -7,35 +7,68 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:gap/gap.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart' as geocoding;
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart' as gm;
+import 'package:latlong2/latlong.dart' as ll;
 
 import '../../../../core/auth/auth_gate.dart';
 import '../../../../core/network/network.dart';
 import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/theme.dart';
+import '../../../../core/utils/location_service_resolver.dart';
+import '../../../../core/utils/resilient_location.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_snackbar.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../../features/home/presentation/providers/home_providers.dart';
 import '../../../../models/models.dart';
 import '../../../../providers/auth_provider.dart';
+import '../../../../repositories/repositories.dart';
 import '../../../../config/env.dart';
 
 class MapAddressPage extends ConsumerStatefulWidget {
-  const MapAddressPage({super.key});
+  const MapAddressPage({
+    super.key,
+    this.existingAddress,
+    this.isEditingExisting = false,
+    this.requireFlatNumber = false,
+    this.prefilledLocation,
+  });
+
+  /// When set, the page skips the map-picking step entirely (coordinates
+  /// are already known) and prefills the form from this address instead —
+  /// used both to *complete* an address that's missing its flat number
+  /// (checkout guard) and to *edit* an already-complete saved address.
+  final AddressModel? existingAddress;
+
+  /// When set (and [existingAddress] is null), the page skips the map step
+  /// for a *new* address whose location was just confirmed on the map
+  /// step — prefills address/city/state/pincode, leaves the flat/house
+  /// number blank for the user to fill in, and still creates a new address
+  /// on save (unlike [existingAddress], which updates one in place).
+  final MapPrefilledLocation? prefilledLocation;
+
+  /// Only affects the heading: true shows "Edit Address" (reached via an
+  /// explicit edit action on a saved address), false shows "Select
+  /// Delivery Location" (fresh add, or completing a missing flat number).
+  /// Has no effect when [existingAddress] is null.
+  final bool isEditingExisting;
+
+  /// When true, saving is blocked until the flat/house number is filled in.
+  /// Only the checkout completeness guard sets this — signup/location
+  /// capture and saved-address add/edit must always allow an empty flat
+  /// number, since that's only required to actually place an order.
+  final bool requireFlatNumber;
 
   @override
   ConsumerState<MapAddressPage> createState() => _MapAddressPageState();
 }
 
 class _MapAddressPageState extends ConsumerState<MapAddressPage> {
-  static const _initialCamera = gm.CameraPosition(
-    target: gm.LatLng(20.5937, 78.9629),
-    zoom: 4.8,
-  );
+  static const _initialCenter = ll.LatLng(20.5937, 78.9629);
+  static const _initialZoom = 4.8;
 
   final _searchController = TextEditingController();
   final _addressLineController = TextEditingController();
@@ -43,8 +76,8 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
   final _landmarkController = TextEditingController();
 
   Timer? _searchDebounce;
-  gm.GoogleMapController? _mapController;
-  gm.LatLng? _pinPosition;
+  final _mapController = MapController();
+  ll.LatLng? _pinPosition;
   String _selectedCity = '';
   String _selectedState = '';
   String _formattedAddress = '';
@@ -52,7 +85,6 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
   bool _isLoading = false;
   bool _isFetchingLocation = false;
   bool _isSearching = false;
-  bool _locationPermissionGranted = false;
   List<_PlaceSuggestion> _suggestions = const [];
 
   // Editable city / state controllers — pre-filled by reverse geocoding but
@@ -60,16 +92,50 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
   final _cityController = TextEditingController();
   final _stateController = TextEditingController();
 
+  bool get _hasExisting => widget.existingAddress != null;
+
+  /// True whenever the map step should be skipped entirely and only the
+  /// detail form shown — either an already-saved address being edited/
+  /// completed, or a brand-new location just confirmed on the map step.
+  bool get _isFormOnly => _hasExisting || widget.prefilledLocation != null;
+
   @override
   void initState() {
     super.initState();
-    unawaited(_moveToCurrentLocation());
+    final existing = widget.existingAddress;
+    final prefilled = widget.prefilledLocation;
+    if (existing != null) {
+      _addressLineController.text = existing.line1;
+      _pincodeController.text = existing.pincode;
+      _landmarkController.text = existing.landmark ?? '';
+      _cityController.text = existing.city;
+      _stateController.text = existing.state;
+      _selectedCity = existing.city;
+      _selectedState = existing.state;
+      _selectedType = existing.type;
+      _formattedAddress = existing.line2 ?? '';
+      final coords = existing.coordinates;
+      if (coords != null) {
+        _pinPosition = ll.LatLng(coords.latitude, coords.longitude);
+      }
+    } else if (prefilled != null) {
+      // Flat/house number deliberately left blank — a reverse-geocode can
+      // never know it, and the user still needs to fill it in themselves.
+      _pincodeController.text = prefilled.pincode;
+      _cityController.text = prefilled.city;
+      _stateController.text = prefilled.state;
+      _selectedCity = prefilled.city;
+      _selectedState = prefilled.state;
+      _formattedAddress = prefilled.formattedAddress;
+      _pinPosition = ll.LatLng(prefilled.lat, prefilled.lng);
+    } else {
+      unawaited(_moveToCurrentLocation());
+    }
   }
 
   @override
   void dispose() {
     _searchDebounce?.cancel();
-    _mapController?.dispose();
     _searchController.dispose();
     _addressLineController.dispose();
     _pincodeController.dispose();
@@ -143,25 +209,54 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
     });
 
     try {
-      final response =
-          await _dio.get<dynamic>('/maps/place-details/${suggestion.placeId}');
-      final details = _dataMap(response);
-      final lat = (details['lat'] as num?)?.toDouble();
-      final lng = (details['lng'] as num?)?.toDouble();
-      if (lat == null || lng == null) {
-        throw const FormatException('Selected place is missing coordinates.');
+      double lat;
+      double lng;
+      String? postalCode;
+      bool needsReverseGeocode;
+
+      if (suggestion.lat != null && suggestion.lng != null) {
+        // Ola-sourced — already carries everything, no second call needed.
+        lat = suggestion.lat!;
+        lng = suggestion.lng!;
+        _formattedAddress = suggestion.formattedAddress ?? suggestion.description;
+        postalCode = suggestion.postalCode;
+        if (suggestion.city?.isNotEmpty == true) {
+          _selectedCity = suggestion.city!;
+          _cityController.text = suggestion.city!;
+        }
+        if (suggestion.state?.isNotEmpty == true) {
+          _selectedState = suggestion.state!;
+          _stateController.text = suggestion.state!;
+        }
+        needsReverseGeocode = false;
+      } else {
+        // Google-sourced fallback — needs the details + reverse-geocode
+        // round trips, since autocomplete alone doesn't carry coordinates.
+        final response = await _dio
+            .get<dynamic>('/maps/place-details/${suggestion.placeId}');
+        final details = _dataMap(response);
+        final detailLat = (details['lat'] as num?)?.toDouble();
+        final detailLng = (details['lng'] as num?)?.toDouble();
+        if (detailLat == null || detailLng == null) {
+          throw const FormatException('Selected place is missing coordinates.');
+        }
+        lat = detailLat;
+        lng = detailLng;
+        _formattedAddress =
+            details['formatted_address'] as String? ?? suggestion.description;
+        postalCode = details['postal_code'] as String?;
+        needsReverseGeocode = true;
       }
 
-      final next = gm.LatLng(lat, lng);
-      _formattedAddress =
-          details['formatted_address'] as String? ?? suggestion.description;
-      final postalCode = details['postal_code'] as String?;
       if (postalCode != null && postalCode.isNotEmpty) {
         _pincodeController.text = postalCode;
       }
 
+      final next = ll.LatLng(lat, lng);
       await _setPin(next, zoom: 17);
-      await _reverseGeocode(next);
+      if (needsReverseGeocode) {
+        await _reverseGeocode(next);
+      }
     } catch (e) {
       if (mounted) {
         AppSnackBar.showError(context, 'Could not resolve this address.');
@@ -178,20 +273,35 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
     setState(() => _isFetchingLocation = true);
 
     try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      var serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        if (mounted) {
-          AppSnackBar.showError(context, 'Please enable location services.');
+        // Drives the native in-app "Turn on Location" dialog on Android
+        // (genuinely flips GPS on without leaving the app) rather than
+        // just telling the user to go do it themselves in Settings.
+        serviceEnabled = await requestEnableLocationService();
+        if (!serviceEnabled) {
+          if (mounted) {
+            AppSnackBar.showError(context, 'Please enable location services.');
+          }
+          return;
         }
-        return;
       }
 
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          AppSnackBar.showError(
+            context,
+            'Location permission is blocked. Enable it from app settings.',
+          );
+          unawaited(openLocationPermissionSettings());
+        }
+        return;
+      }
+      if (permission == LocationPermission.denied) {
         if (mounted) {
           AppSnackBar.showError(
             context,
@@ -201,11 +311,12 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
         return;
       }
 
-      _locationPermissionGranted = true;
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      final next = gm.LatLng(position.latitude, position.longitude);
+      // Tiered fallback — a bare getCurrentPosition() right after enabling
+      // GPS above regularly hangs while the OS location subsystem "warms
+      // up", so this tries a cached fix, then low- then medium-accuracy
+      // live fixes before giving up.
+      final position = await getResilientCurrentPosition();
+      final next = ll.LatLng(position.latitude, position.longitude);
       await _setPin(next, zoom: 17);
       await _reverseGeocode(next);
     } catch (e) {
@@ -219,19 +330,67 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
     }
   }
 
-  Future<void> _setPin(gm.LatLng position, {double? zoom}) async {
+  Future<void> _setPin(ll.LatLng position, {double? zoom}) async {
     setState(() => _pinPosition = position);
-    final controller = _mapController;
-    if (controller != null) {
-      await controller.animateCamera(
-        gm.CameraUpdate.newCameraPosition(
-          gm.CameraPosition(target: position, zoom: zoom ?? 16),
-        ),
+    _mapController.move(position, zoom ?? 16);
+  }
+
+  /// Reverse-geocodes via Ola Maps first (dashboard-configured; carries a
+  /// landmark field the OS geocoder never provides, and is far more
+  /// reliable for Indian addresses), falling back to the phone's own OS
+  /// geocoder if Ola isn't configured/enabled or the call fails — so this
+  /// never hard-breaks the address flow on a build where no one has set
+  /// up an Ola Maps key in the dashboard yet.
+  Future<void> _reverseGeocode(ll.LatLng position) async {
+    if (await _reverseGeocodeViaOla(position)) return;
+    await _reverseGeocodeViaOsGeocoder(position);
+  }
+
+  /// Returns true if Ola Maps successfully resolved and applied an
+  /// address, false to signal the caller should fall back.
+  Future<bool> _reverseGeocodeViaOla(ll.LatLng position) async {
+    try {
+      final response = await _dio.get<dynamic>(
+        '/maps/ola/reverse-geocode',
+        queryParameters: {'lat': position.latitude, 'lng': position.longitude},
       );
+      final data = _dataMap(response);
+      if (data.isEmpty || !mounted) return false;
+
+      final resolvedCity = (data['city'] as String?)?.trim() ?? '';
+      final resolvedState = (data['state'] as String?)?.trim() ?? '';
+      final postalCode = (data['postal_code'] as String?)?.trim();
+      final formatted = (data['formatted_address'] as String?)?.trim() ?? '';
+
+      if (resolvedCity.isEmpty && formatted.isEmpty) return false;
+
+      setState(() {
+        if (resolvedCity.isNotEmpty) {
+          _selectedCity = resolvedCity;
+          _cityController.text = resolvedCity;
+        }
+        if (resolvedState.isNotEmpty) {
+          _selectedState = resolvedState;
+          _stateController.text = resolvedState;
+        }
+        if (_pincodeController.text.trim().isEmpty &&
+            postalCode?.isNotEmpty == true) {
+          _pincodeController.text = postalCode!;
+        }
+        if (_formattedAddress.isEmpty && formatted.isNotEmpty) {
+          _formattedAddress = formatted;
+        }
+      });
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[ReverseGeocode] Ola Maps failed, falling back: $e');
+      }
+      return false;
     }
   }
 
-  Future<void> _reverseGeocode(gm.LatLng position) async {
+  Future<void> _reverseGeocodeViaOsGeocoder(ll.LatLng position) async {
     try {
       final places = await geocoding.placemarkFromCoordinates(
         position.latitude,
@@ -328,7 +487,7 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
   /// Validates the selected coordinates and pincode against the backend.
   /// Returns null if serviceable, or a human-readable error message explaining
   /// exactly why the address was rejected.
-  Future<String?> _validateBackendServiceability(gm.LatLng position) async {
+  Future<String?> _validateBackendServiceability(ll.LatLng position) async {
     final pincode = _pincodeController.text.trim();
 
     // ── Log what we're about to send ──────────────────────────────────────────
@@ -444,8 +603,18 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
       AppSnackBar.showError(context, 'Please select your exact map location.');
       return;
     }
-    if (line1.isEmpty || pincode.isEmpty) {
+    if (pincode.isEmpty) {
       AppSnackBar.showError(context, 'Please complete the address details.');
+      return;
+    }
+    // Flat/house number is only mandatory when arriving via the checkout
+    // completeness guard — everywhere else (signup/location capture,
+    // saved-address add/edit) an address may be saved without it.
+    if (widget.requireFlatNumber && line1.isEmpty) {
+      AppSnackBar.showError(
+        context,
+        'Please add your flat / house number to continue.',
+      );
       return;
     }
     if (!RegExp(r'^[1-9][0-9]{5}$').hasMatch(pincode)) {
@@ -495,6 +664,44 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
         }
       }
 
+      final existing = widget.existingAddress;
+      final coordinates = LatLng(
+        latitude: pin.latitude,
+        longitude: pin.longitude,
+      );
+      final landmark = _landmarkController.text.trim().isEmpty
+          ? null
+          : _landmarkController.text.trim();
+      final resolvedState =
+          _selectedState.isNotEmpty ? _selectedState : _selectedCity;
+
+      if (existing != null) {
+        // Completing/editing an already-saved address — patch it in place,
+        // preserving id/userId/isDefault, instead of creating a new one.
+        final updated = existing.copyWith(
+          line1: line1,
+          line2: _formattedAddress.isNotEmpty ? _formattedAddress : null,
+          city: _selectedCity,
+          state: resolvedState,
+          pincode: pincode,
+          landmark: landmark,
+          type: _selectedType,
+          coordinates: coordinates,
+        );
+        await ref.read(customerRepositoryProvider).updateAddress(updated);
+
+        ref
+          ..invalidate(currentAddressProvider)
+          ..invalidate(homeVendorsProvider)
+          ..invalidate(homeCategoriesProvider);
+
+        if (mounted) {
+          AppSnackBar.showSuccess(context, 'Address updated.');
+          Navigator.of(context).pop(updated);
+        }
+        return;
+      }
+
       final user = ref.read(currentUserProvider);
       final address = AddressModel(
         id: '',
@@ -502,17 +709,12 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
         line1: line1,
         line2: _formattedAddress.isNotEmpty ? _formattedAddress : null,
         city: _selectedCity,
-        state: _selectedState.isNotEmpty ? _selectedState : _selectedCity,
+        state: resolvedState,
         pincode: pincode,
-        landmark: _landmarkController.text.trim().isEmpty
-            ? null
-            : _landmarkController.text.trim(),
+        landmark: landmark,
         type: _selectedType,
         isDefault: true,
-        coordinates: LatLng(
-          latitude: pin.latitude,
-          longitude: pin.longitude,
-        ),
+        coordinates: coordinates,
       );
 
       final hasPendingAction = ref.read(pendingAuthActionProvider) != null;
@@ -553,16 +755,75 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
     }
   }
 
+  /// Pushes a fresh, map-free instance of this same page with the just-
+  /// confirmed location prefilled — the "second page" the user fills in
+  /// their flat/house number on. A new push (not an in-place state swap)
+  /// so the back button naturally returns to the map with the pin/search
+  /// state still intact, and so [_onSaveAddress]'s existing
+  /// `context.go(AppRoutes.home)` on success correctly unwinds both this
+  /// and the map page in one shot.
+  void _onConfirmLocation() {
+    final pin = _pinPosition;
+    if (pin == null) return;
+    context.push(
+      AppRoutes.mapAddress,
+      extra: (
+        existingAddress: null,
+        isEditingExisting: false,
+        requireFlatNumber: widget.requireFlatNumber,
+        prefilledLocation: (
+          lat: pin.latitude,
+          lng: pin.longitude,
+          formattedAddress: _formattedAddress,
+          city: _selectedCity,
+          state: _selectedState,
+          pincode: _pincodeController.text.trim(),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
+    // Landed here specifically to fill in a missing flat number (not a
+    // general edit) — show the prominent purple-bordered callout.
+    final showMissingFlatBanner = _hasExisting &&
+        !widget.isEditingExisting &&
+        widget.existingAddress!.line1.trim().isEmpty;
+
+    final addressForm = _AddressForm(
+      addressLineController: _addressLineController,
+      pincodeController: _pincodeController,
+      landmarkController: _landmarkController,
+      cityController: _cityController,
+      stateController: _stateController,
+      selectedType: _selectedType,
+      formattedAddress: _formattedAddress,
+      city: _selectedCity,
+      stateName: _selectedState,
+      isLoading: _isLoading,
+      saveLabel: _hasExisting ? 'Save Address' : 'Save Default Address',
+      showMissingFlatBanner: showMissingFlatBanner,
+      onTypeChanged: (type) => setState(() => _selectedType = type),
+      onCityChanged: (v) => setState(() => _selectedCity = v),
+      onStateChanged: (v) => setState(() => _selectedState = v),
+      onSave: _onSaveAddress,
+    );
+
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkBackground : AppColors.background,
       appBar: AppBar(
-        title:
-            Text('Select Delivery Location', style: AppTypography.titleLarge),
+        title: Text(
+          switch ((_hasExisting, widget.isEditingExisting, _isFormOnly)) {
+            (true, true, _) => 'Edit Address',
+            (false, _, true) => 'Confirm Address Details',
+            _ => 'Select Delivery Location',
+          },
+          style: AppTypography.titleLarge,
+        ),
         centerTitle: true,
         leading: IconButton(
           icon: const Icon(AppIcons.back),
@@ -578,40 +839,61 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
         elevation: 0,
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: Stack(
+        child: _isFormOnly
+            // Coordinates are already known — skip the map step entirely
+            // and go straight to the form, matching a saved address's
+            // "Edit" flow (and the checkout flat-number-completion guard).
+            ? addressForm
+            : Column(
                 children: [
-                  gm.GoogleMap(
-                    initialCameraPosition: _initialCamera,
-                    myLocationButtonEnabled: false,
-                    myLocationEnabled: _locationPermissionGranted,
-                    zoomControlsEnabled: false,
-                    mapToolbarEnabled: false,
-                    markers: {
+                  Expanded(
+                    child: Stack(
+                      children: [
+                  FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(
+                      initialCenter: _initialCenter,
+                      initialZoom: _initialZoom,
+                      // Tap or long-press to (re)place the pin — flutter_map
+                      // has no built-in draggable marker like GoogleMap did,
+                      // so re-tapping is how the pin gets repositioned now.
+                      onTap: (tapPosition, point) async {
+                        await _setPin(point);
+                        await _reverseGeocode(point);
+                      },
+                      onLongPress: (tapPosition, point) async {
+                        await _setPin(point);
+                        await _reverseGeocode(point);
+                      },
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate:
+                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.lndry.app',
+                        maxZoom: 19,
+                      ),
                       if (_pinPosition != null)
-                        gm.Marker(
-                          markerId: const gm.MarkerId('selected_address'),
-                          position: _pinPosition!,
-                          draggable: true,
-                          onDragEnd: (position) async {
-                            await _setPin(position);
-                            await _reverseGeocode(position);
-                          },
+                        MarkerLayer(
+                          markers: [
+                            Marker(
+                              point: _pinPosition!,
+                              width: 40.r,
+                              height: 40.r,
+                              // The pin icon's visual point sits at the
+                              // bottom of its box, so anchor there — not
+                              // flutter_map's Alignment.center default —
+                              // or the tip would float above the real spot.
+                              alignment: Alignment.bottomCenter,
+                              child: Icon(
+                                Icons.location_on_rounded,
+                                color: AppColors.primary,
+                                size: 40.r,
+                              ),
+                            ),
+                          ],
                         ),
-                    },
-                    onMapCreated: (controller) {
-                      _mapController = controller;
-                    },
-                    onLongPress: (position) async {
-                      await _setPin(position);
-                      await _reverseGeocode(position);
-                    },
-                    onTap: (position) async {
-                      await _setPin(position);
-                      await _reverseGeocode(position);
-                    },
+                    ],
                   ),
                   Positioned(
                     left: 16.w,
@@ -726,21 +1008,48 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
                 ],
               ),
             ),
-            _AddressForm(
-              addressLineController: _addressLineController,
-              pincodeController: _pincodeController,
-              landmarkController: _landmarkController,
-              cityController: _cityController,
-              stateController: _stateController,
-              selectedType: _selectedType,
-              formattedAddress: _formattedAddress,
-              city: _selectedCity,
-              stateName: _selectedState,
-              isLoading: _isLoading,
-              onTypeChanged: (type) => setState(() => _selectedType = type),
-              onCityChanged: (v) => setState(() => _selectedCity = v),
-              onStateChanged: (v) => setState(() => _selectedState = v),
-              onSave: _onSaveAddress,
+            // Just a single "Confirm Location" action here — the map step
+            // never shows the address form itself (that was the source of
+            // the keyboard-squeezes-the-map bug: a tall form sharing this
+            // screen with the map). Confirming pushes a fresh, map-free
+            // instance of this same page with the resolved location
+            // prefilled — see _onConfirmLocation.
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.pagePaddingH.w,
+                12.h,
+                AppSpacing.pagePaddingH.w,
+                12.h,
+              ),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkSurface : AppColors.surface,
+                boxShadow: AppElevation.medium,
+              ),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_formattedAddress.isNotEmpty) ...[
+                      Text(
+                        _formattedAddress,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      Gap(10.h),
+                    ],
+                    AppButton(
+                      label: 'Confirm Location',
+                      isDisabled: _pinPosition == null,
+                      onPressed: _onConfirmLocation,
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
@@ -761,6 +1070,8 @@ class _AddressForm extends StatelessWidget {
     required this.city,
     required this.stateName,
     required this.isLoading,
+    required this.saveLabel,
+    required this.showMissingFlatBanner,
     required this.onTypeChanged,
     required this.onCityChanged,
     required this.onStateChanged,
@@ -777,6 +1088,8 @@ class _AddressForm extends StatelessWidget {
   final String city;
   final String stateName;
   final bool isLoading;
+  final String saveLabel;
+  final bool showMissingFlatBanner;
   final ValueChanged<AddressType> onTypeChanged;
   final ValueChanged<String> onCityChanged;
   final ValueChanged<String> onStateChanged;
@@ -802,6 +1115,39 @@ class _AddressForm extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (showMissingFlatBanner) ...[
+              Container(
+                padding:
+                    EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryContainer,
+                  borderRadius: BorderRadius.circular(AppRadius.lg.r),
+                  border: Border.all(color: AppColors.primary, width: 1.5),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.error_outline_rounded,
+                      color: AppColors.primary,
+                      size: 20.r,
+                    ),
+                    Gap(10.w),
+                    Expanded(
+                      child: Text(
+                        'Your flat / house number is missing. Please add '
+                        'it below to continue.',
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.primaryDark,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Gap(16),
+            ],
             Text('Confirm Location Details', style: AppTypography.titleMedium),
             if (formattedAddress.isNotEmpty) ...[
               const Gap(8),
@@ -917,7 +1263,7 @@ class _AddressForm extends StatelessWidget {
             ),
             const Gap(20),
             AppButton(
-              label: 'Save Default Address',
+              label: saveLabel,
               isLoading: isLoading,
               onPressed: onSave,
             ),
@@ -968,15 +1314,39 @@ class _PlaceSuggestion {
   const _PlaceSuggestion({
     required this.description,
     required this.placeId,
+    this.lat,
+    this.lng,
+    this.formattedAddress,
+    this.postalCode,
+    this.city,
+    this.state,
   });
 
   factory _PlaceSuggestion.fromJson(Map<String, dynamic> json) {
     return _PlaceSuggestion(
       description: json['description'] as String? ?? '',
       placeId: json['place_id'] as String? ?? json['placeId'] as String? ?? '',
+      lat: (json['lat'] as num?)?.toDouble(),
+      lng: (json['lng'] as num?)?.toDouble(),
+      formattedAddress: json['formatted_address'] as String?,
+      postalCode: json['postal_code'] as String?,
+      city: json['city'] as String?,
+      state: json['state'] as String?,
     );
   }
 
   final String description;
   final String placeId;
+
+  /// Present only for Ola-sourced suggestions, whose geocode response
+  /// already carries everything a details lookup would give — when set,
+  /// [_MapAddressPageState._selectSuggestion] uses these directly instead
+  /// of round-tripping through `/place-details` (which also can't safely
+  /// carry a long encoded id in its URL — see maps.routes.js).
+  final double? lat;
+  final double? lng;
+  final String? formattedAddress;
+  final String? postalCode;
+  final String? city;
+  final String? state;
 }

@@ -92,6 +92,24 @@ abstract final class AppDateUtils {
     return DateFormat('h a').format(dt);
   }
 
+  /// Formats a raw "HH:mm:ss" or "HH:mm" time-of-day string — the shape
+  /// Postgres TIME columns (e.g. vendor_slots.start_time/end_time) come
+  /// back as — into "8:00 AM" style. Falls back to the raw string if it
+  /// can't be parsed, rather than throwing on unexpected input.
+  static String formatTimeOfDay(String raw) {
+    final parts = raw.split(':');
+    if (parts.length < 2) return raw;
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null || hour < 0 || hour > 23) return raw;
+    final dt = DateTime(2000, 1, 1, hour, minute);
+    return DateFormat('h:mm a').format(dt);
+  }
+
+  /// "8:00 AM - 8:00 PM"
+  static String formatTimeRange(String start, String end) =>
+      '${formatTimeOfDay(start)} - ${formatTimeOfDay(end)}';
+
   /// Whether [dt] is today
   static bool isToday(DateTime dt) {
     final now = DateTime.now();

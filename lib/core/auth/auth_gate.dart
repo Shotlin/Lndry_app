@@ -61,9 +61,10 @@ Future<void> requireAuthenticated({
     return;
   }
 
-  // Show polished sign-in prompt before navigating to login
+  // Present above the shell itself so the footer cannot paint over the sheet.
   final shouldProceed = await showModalBottomSheet<bool>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (ctx) => const _LoginPromptSheet(),
@@ -97,10 +98,26 @@ class _LoginPromptSheet extends StatelessWidget {
   const _LoginPromptSheet();
 
   static const _benefits = [
-    _Benefit(icon: AppIcons.cart, title: 'Book laundry services', helper: 'Schedule pickups in a few taps'),
-    _Benefit(icon: AppIcons.location, title: 'Save addresses', helper: 'Faster checkout, every time'),
-    _Benefit(icon: AppIcons.orders, title: 'Track orders', helper: 'Real-time updates, always'),
-    _Benefit(icon: AppIcons.document, title: 'View invoices', helper: 'All your bills in one place'),
+    _Benefit(
+      imagePath: 'assets/icons/lndry_bag.png',
+      title: 'Book laundry services',
+      helper: 'Schedule pickups in a few taps',
+    ),
+    _Benefit(
+      imagePath: 'assets/icons/lndry_map.png',
+      title: 'Save addresses',
+      helper: 'Faster checkout, every time',
+    ),
+    _Benefit(
+      imagePath: 'assets/icons/lndry_rider_icon.png',
+      title: 'Track orders',
+      helper: 'Real-time updates, always',
+    ),
+    _Benefit(
+      imagePath: 'assets/icons/lndry_cupon.png',
+      title: 'View invoices',
+      helper: 'All your bills in one place',
+    ),
   ];
 
   @override
@@ -109,15 +126,18 @@ class _LoginPromptSheet extends StatelessWidget {
     final heroHeight = heroWidth * (887 / 1774);
 
     return ClipRRect(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.sheet.r)),
+      borderRadius:
+          BorderRadius.vertical(top: Radius.circular(AppRadius.sheet.r)),
       child: BackdropFilter(
         // Frosts whatever's behind the sheet for the premium glass feel.
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
           decoration: BoxDecoration(
             gradient: AppColors.signInSheetGradient,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.sheet.r)),
-            border: Border.all(color: AppColors.white.withValues(alpha: 0.6), width: 1),
+            borderRadius:
+                BorderRadius.vertical(top: Radius.circular(AppRadius.sheet.r)),
+            border: Border.all(
+                color: AppColors.white.withValues(alpha: 0.6), width: 1),
             boxShadow: AppElevation.high,
           ),
           child: Stack(
@@ -140,7 +160,8 @@ class _LoginPromptSheet extends StatelessWidget {
                         alignment: Alignment.topCenter,
                         children: [
                           ClipRRect(
-                            borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.sheet.r)),
+                            borderRadius: BorderRadius.vertical(
+                                top: Radius.circular(AppRadius.sheet.r)),
                             child: SizedBox(
                               width: double.infinity,
                               height: heroHeight,
@@ -162,7 +183,8 @@ class _LoginPromptSheet extends StatelessWidget {
                                         colors: [
                                           Colors.transparent,
                                           Colors.transparent,
-                                          AppColors.lavenderTint.withValues(alpha: 0.9),
+                                          AppColors.lavenderTint
+                                              .withValues(alpha: 0.9),
                                         ],
                                         stops: const [0.0, 0.72, 1.0],
                                       ),
@@ -182,7 +204,8 @@ class _LoginPromptSheet extends StatelessWidget {
                                 color: AppColors.white.withValues(alpha: 0.8),
                                 borderRadius: BorderRadius.circular(2.r),
                                 boxShadow: const [
-                                  BoxShadow(color: Color(0x1A000000), blurRadius: 4),
+                                  BoxShadow(
+                                      color: Color(0x1A000000), blurRadius: 4),
                                 ],
                               ),
                             ),
@@ -202,8 +225,9 @@ class _LoginPromptSheet extends StatelessWidget {
                           children: [
                             // ── Brand label ─────────────────────────────
                             ShaderMask(
-                              shaderCallback: (bounds) =>
-                                  AppColors.signInCtaGradient.createShader(bounds),
+                              shaderCallback: (bounds) => AppColors
+                                  .signInCtaGradient
+                                  .createShader(bounds),
                               child: Text(
                                 'LNDRY',
                                 textAlign: TextAlign.center,
@@ -253,7 +277,8 @@ class _LoginPromptSheet extends StatelessWidget {
                               padding: EdgeInsets.all(AppSpacing.sm.r),
                               decoration: BoxDecoration(
                                 color: AppColors.white.withValues(alpha: 0.55),
-                                borderRadius: BorderRadius.circular(AppRadius.xl.r),
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.xl.r),
                                 border: Border.all(
                                   color: AppColors.white.withValues(alpha: 0.8),
                                   width: 1,
@@ -262,23 +287,38 @@ class _LoginPromptSheet extends StatelessWidget {
                               child: Column(
                                 children: [
                                   Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Expanded(child: _BenefitTile(_benefits[0])),
-                                      Container(width: 1, height: 48.h, color: AppColors.outlineVariant),
-                                      Expanded(child: _BenefitTile(_benefits[1])),
+                                      Expanded(
+                                          child: _BenefitTile(_benefits[0])),
+                                      Container(
+                                          width: 1,
+                                          height: 48.h,
+                                          color: AppColors.outlineVariant),
+                                      Expanded(
+                                          child: _BenefitTile(_benefits[1])),
                                     ],
                                   ),
                                   Padding(
-                                    padding: EdgeInsets.symmetric(vertical: AppSpacing.sm.h),
-                                    child: Container(height: 1, color: AppColors.outlineVariant),
+                                    padding: EdgeInsets.symmetric(
+                                        vertical: AppSpacing.sm.h),
+                                    child: Container(
+                                        height: 1,
+                                        color: AppColors.outlineVariant),
                                   ),
                                   Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Expanded(child: _BenefitTile(_benefits[2])),
-                                      Container(width: 1, height: 48.h, color: AppColors.outlineVariant),
-                                      Expanded(child: _BenefitTile(_benefits[3])),
+                                      Expanded(
+                                          child: _BenefitTile(_benefits[2])),
+                                      Container(
+                                          width: 1,
+                                          height: 48.h,
+                                          color: AppColors.outlineVariant),
+                                      Expanded(
+                                          child: _BenefitTile(_benefits[3])),
                                     ],
                                   ),
                                 ],
@@ -323,8 +363,15 @@ class _LoginPromptSheet extends StatelessWidget {
 }
 
 class _Benefit {
-  const _Benefit({required this.icon, required this.title, required this.helper});
-  final IconData icon;
+  const _Benefit(
+      {this.icon, this.imagePath, required this.title, required this.helper})
+      : assert(icon != null || imagePath != null);
+  final IconData? icon;
+
+  /// Branded 3D icon asset (assets/icons/) — takes priority over [icon]
+  /// when set, since these are illustrated glossy icons in their own right
+  /// rather than glyphs needing a colored background chip.
+  final String? imagePath;
   final String title;
   final String helper;
 }
@@ -340,15 +387,23 @@ class _BenefitTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 34.r,
-            height: 34.r,
-            decoration: BoxDecoration(
-              color: AppColors.primaryContainer,
-              borderRadius: BorderRadius.circular(AppRadius.md.r),
-            ),
-            child: Icon(benefit.icon, size: 18.r, color: AppColors.primary),
-          ),
+          benefit.imagePath != null
+              ? Image.asset(
+                  benefit.imagePath!,
+                  width: 34.r,
+                  height: 34.r,
+                  fit: BoxFit.contain,
+                )
+              : Container(
+                  width: 34.r,
+                  height: 34.r,
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryContainer,
+                    borderRadius: BorderRadius.circular(AppRadius.md.r),
+                  ),
+                  child:
+                      Icon(benefit.icon, size: 18.r, color: AppColors.primary),
+                ),
           Gap(AppSpacing.xs.h),
           Text(
             benefit.title,
@@ -413,7 +468,8 @@ class _GlossyCtaButton extends StatelessWidget {
                 height: 24.h,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.button.r)),
+                    borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(AppRadius.button.r)),
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,

@@ -1,12 +1,20 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
-    id("com.google.gms.google-services")
+}
+
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
 android {
-    namespace = "com.example.lndry"
+    namespace = "com.lndry.app"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -17,22 +25,27 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.lndry"
+        applicationId = "com.lndry.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] =
-            System.getenv("GOOGLE_MAPS_API_KEY") ?: ""
+    }
+
+    signingConfigs {
+        create("release") {
+            keyAlias = keystoreProperties["keyAlias"] as String?
+            keyPassword = keystoreProperties["keyPassword"] as String?
+            storeFile = keystoreProperties["storeFile"]?.let { rootProject.file(it) }
+            storePassword = keystoreProperties["storePassword"] as String?
+        }
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
@@ -45,4 +58,14 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Google's own Play Install Referrer API — reads back the referral
+    // code carried through a Play Store install link (see
+    // ReferralAttributionService.kt). Implemented directly rather than via
+    // the android_play_install_referrer pub package, whose bundled Android
+    // module hardcodes compileSdk 33 and no longer builds against this
+    // project's newer transitive androidx versions.
+    implementation("com.android.installreferrer:installreferrer:2.2")
 }

@@ -4,6 +4,8 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/router/app_routes.dart';
+import '../../../../core/services/referral_attribution_service.dart';
+import '../../../../core/services/storage_service.dart';
 import '../../../../core/theme/theme.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
@@ -25,6 +27,18 @@ class _ProfileSetupPageState extends ConsumerState<ProfileSetupPage> {
   final _emailController = TextEditingController();
   final _referralCodeController = TextEditingController();
   bool _isLoading = false;
+  bool _referralAutoApplied = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final pendingCode =
+        ReferralAttributionService.consumePendingCode(ref.read(storageServiceProvider));
+    if (pendingCode != null) {
+      _referralCodeController.text = pendingCode;
+      _referralAutoApplied = true;
+    }
+  }
 
   @override
   void dispose() {
@@ -146,6 +160,17 @@ class _ProfileSetupPageState extends ConsumerState<ProfileSetupPage> {
                         controller: _referralCodeController,
                         textCapitalization: TextCapitalization.characters,
                         prefixIcon: const Icon(AppIcons.gift),
+                        suffixIcon: _referralAutoApplied
+                            ? Icon(AppIcons.success, color: AppColors.success)
+                            : null,
+                        helperText: _referralAutoApplied
+                            ? 'Applied automatically from your invite link — you can still change it.'
+                            : null,
+                        onChanged: (_) {
+                          if (_referralAutoApplied) {
+                            setState(() => _referralAutoApplied = false);
+                          }
+                        },
                       ),
                       const Gap(48),
                       AppButton(

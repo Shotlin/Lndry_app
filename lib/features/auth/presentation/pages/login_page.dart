@@ -160,7 +160,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                     TextSpan(text: 'Welcome to '),
                                     TextSpan(
                                       text: 'Lndry',
-                                      style: TextStyle(color: AppColors.primary),
+                                      style:
+                                          TextStyle(color: AppColors.primary),
                                     ),
                                   ],
                                 ),
@@ -183,13 +184,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                 borderColor: AppColors.outlineVariant,
                                 borderRadius: AppRadius.md,
                                 prefixIcon: Padding(
-                                  padding: EdgeInsets.only(left: 16.w, right: 12.w),
+                                  padding:
+                                      EdgeInsets.only(left: 16.w, right: 12.w),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(
                                         '+91',
-                                        style: AppTypography.bodyMedium.copyWith(
+                                        style:
+                                            AppTypography.bodyMedium.copyWith(
                                           color: AppColors.textBlack,
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -225,7 +228,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                     height: 1.5,
                                   ),
                                   children: const [
-                                    TextSpan(text: 'By continuing, you agree to our '),
+                                    TextSpan(
+                                        text:
+                                            'By continuing, you agree to our '),
                                     TextSpan(
                                       text: 'Terms & Conditions',
                                       style: TextStyle(

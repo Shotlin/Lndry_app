@@ -47,7 +47,11 @@ class _MyReviewsPageState extends ConsumerState<MyReviewsPage> {
       context: context,
       title: 'Edit Review',
       primaryActionLabel: 'Save Review',
-      onPrimaryAction: () => Navigator.of(context).pop(true),
+      // AppBottomSheet.show uses useRootNavigator: true; must pop the
+      // same navigator explicitly or the sheet never closes (see
+      // order_revision_sheet.dart for the full explanation).
+      onPrimaryAction: () =>
+          Navigator.of(context, rootNavigator: true).pop(true),
       child: StatefulBuilder(
         builder: (context, setModalState) => Column(
           mainAxisSize: MainAxisSize.min,

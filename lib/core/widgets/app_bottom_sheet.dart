@@ -38,8 +38,10 @@ class AppBottomSheet extends StatelessWidget {
 
     return showModalBottomSheet<T>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: isScrollControlled,
-      backgroundColor: isDark ? AppColors.darkSurfaceContainer : AppColors.surface,
+      backgroundColor:
+          isDark ? AppColors.darkSurfaceContainer : AppColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(AppRadius.sheet.r),
@@ -107,14 +109,16 @@ class AppBottomSheet extends StatelessWidget {
               if (primaryActionLabel != null) ...[
                 AppButton(
                   label: primaryActionLabel!,
-                  onPressed: onPrimaryAction ?? () => Navigator.of(context).pop(),
+                  onPressed:
+                      onPrimaryAction ?? () => Navigator.of(context).pop(),
                 ),
                 const Gap(12),
               ],
               if (secondaryActionLabel != null) ...[
                 AppButton.outlined(
                   label: secondaryActionLabel!,
-                  onPressed: onSecondaryAction ?? () => Navigator.of(context).pop(),
+                  onPressed:
+                      onSecondaryAction ?? () => Navigator.of(context).pop(),
                 ),
               ],
             ],
@@ -130,7 +134,8 @@ class _SpringSlideUpTransition extends StatefulWidget {
   const _SpringSlideUpTransition({required this.child});
 
   @override
-  State<_SpringSlideUpTransition> createState() => _SpringSlideUpTransitionState();
+  State<_SpringSlideUpTransition> createState() =>
+      _SpringSlideUpTransitionState();
 }
 
 class _SpringSlideUpTransitionState extends State<_SpringSlideUpTransition>

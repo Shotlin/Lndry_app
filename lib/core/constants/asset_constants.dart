@@ -21,8 +21,32 @@ abstract final class AssetConstants {
   static const String avatarPlaceholder = '$_images/avatar_placeholder.png';
   static const String servicePlaceholder = '$_images/service_placeholder.png';
   static const String logo = 'assets/images/logo/lndry_logo.jpg';
+  static const String logoWordmark =
+      'assets/images/logo/lndry_wordmark_trimmed.png';
   static const String firstPickupBanner =
       '$_images/banners/first-pickup-v1.png';
+
+  // My Wallet screen — premium hero card + Add Money sheet art.
+  static const String walletCoinBadge = '$_images/wallet/wallet_coin_badge.png';
+  static const String walletSecureIcon = '$_images/wallet/icon_secure_shield.png';
+  static const String walletInstantIcon = '$_images/wallet/icon_instant_bolt.png';
+  static const String razorpayLogo = '$_images/wallet/razorpay_logo.png';
+
+  // Refer & Earn screen art.
+  static const String referHeroArt = '$_images/referrals/refer_hero.png';
+  static const String referEmptyArt = '$_images/referrals/refer_empty.png';
+
+  // Payment screen decorative art (transparent PNGs).
+  static const String paymentFreshTowelsBanner =
+      '$_images/img/payment_towels_fresh_banner.png';
+  static const String paymentShirtConfirmBadge =
+      '$_images/img/payment_shirt_confirm_badge.png';
+  static const String checkoutShopIllustration =
+      '$_images/img/checkout_shop_illustration.png';
+
+  // Checkout screen vendor-card decorative art (transparent PNG).
+  static const String vendorStorefrontBadge =
+      '$_images/img/vendor_storefront_badge.png';
 
   // ── Illustrations ─────────────────────────────────────────────────────────
   static const String emptyOrders = '$_illustrations/empty_orders.png';

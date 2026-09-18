@@ -26,115 +26,106 @@ class CategoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Map custom ETAs for mock display matching Image 1
-    final String eta = switch (category.id) {
-      'cat_wash' || 'wash_fold' || 'cat_001' => '24–36 hrs',
-      'cat_iron' || 'wash_iron' || 'cat_002' => '24 hrs',
-      'cat_wash_iron' => '24 hrs',
-      'cat_dry_clean' || 'dry_cleaning' || 'cat_003' => '24–48 hrs',
-      'cat_shoe' || 'shoe_care' || 'cat_004' => '48 hrs',
-      'cat_premium' || 'premium_care' || 'cat_005' => '48–72 hrs',
-      _ => '24 hrs',
-    };
-
+    // No outer card/box anymore — just a round image circle with the
+    // category name sitting free below it, outside the circle.
     return GestureDetector(
       onTap: onTap,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: 90.w,
-            padding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 8.w),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(AppRadius.compactCard.r),
-              border: Border.all(
-                color: isSelected
-                    ? AppColors.primary
-                    : AppColors.outline.withOpacity(0.5),
-                width: isSelected ? 2 : 1,
-              ),
-              boxShadow: isSelected ? AppElevation.low : null,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+      child: SizedBox(
+        width: 78.w,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
               children: [
-                // Real category photo when available, else a generic icon.
-                if (category.imageUrl.isNotNullOrBlank)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.md.r),
-                    child: CachedNetworkImage(
-                      imageUrl: category.imageUrl!,
-                      width: 44.r,
-                      height: 44.r,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => BrandedServiceIcon(
-                        iconKey: category.icon,
-                        size: 44.r,
-                        iconSize: 24.r,
-                        backgroundColor: isSelected
-                            ? AppColors.primaryContainer
-                            : AppColors.background,
+                _CategoryArtwork(
+                  category: category,
+                  isSelected: isSelected,
+                ),
+                if (isSelected)
+                  Positioned(
+                    top: -2.h,
+                    right: -2.w,
+                    child: Container(
+                      padding: EdgeInsets.all(2.r),
+                      decoration: const BoxDecoration(
+                        color: AppColors.secondary,
+                        shape: BoxShape.circle,
                       ),
-                      errorWidget: (_, __, ___) => BrandedServiceIcon(
-                        iconKey: category.icon,
-                        size: 44.r,
-                        iconSize: 24.r,
-                        backgroundColor: isSelected
-                            ? AppColors.primaryContainer
-                            : AppColors.background,
+                      child: Icon(
+                        AppIcons.done,
+                        color: AppColors.white,
+                        size: 10.r,
                       ),
                     ),
-                  )
-                else
-                  BrandedServiceIcon(
-                    iconKey: category.icon,
-                    size: 44.r,
-                    iconSize: 24.r,
-                    backgroundColor: isSelected
-                        ? AppColors.primaryContainer
-                        : AppColors.background,
                   ),
-                const Gap(8),
-                Text(
-                  category.name,
-                  style: AppTypography.labelMedium.copyWith(
-                    color: AppColors.textBlack,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                  ),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const Gap(2),
-                Text(
-                  eta,
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textMuted,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
               ],
             ),
-          ),
-          if (isSelected)
-            Positioned(
-              top: -6.h,
-              right: -6.w,
-              child: Container(
-                padding: EdgeInsets.all(2.r),
-                decoration: const BoxDecoration(
-                  color: AppColors.secondary,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  AppIcons.done,
-                  color: AppColors.white,
-                  size: 10.r,
-                ),
+            Gap(8.h),
+            Text(
+              category.name,
+              style: AppTypography.labelMedium.copyWith(
+                color: AppColors.textBlack,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
               ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
-        ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Round image-only surface used by the horizontal category rail — just the
+/// circle and its icon, no card, no label inside it.
+///
+/// Renders the real category photo uploaded on the backend
+/// (`CategoryModel.imageUrl`) — per explicit instruction, no local/bundled
+/// icon substitution. The bundled icon only appears as a last-resort
+/// placeholder if the real image is missing or fails to load.
+class _CategoryArtwork extends StatelessWidget {
+  const _CategoryArtwork({required this.category, required this.isSelected});
+
+  final CategoryModel category;
+  final bool isSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = 68.r;
+    final url = category.imageUrl ?? category.icon;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: AppColors.transparent,
+        border: Border.all(
+          color: isSelected
+              ? AppColors.primary
+              : AppColors.outlineVariant,
+          width: isSelected ? 2 : 1,
+        ),
+      ),
+      child: ClipOval(
+        child: url.isNotNullOrBlank
+            ? CachedNetworkImage(
+                imageUrl: url,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => const SizedBox.shrink(),
+                errorWidget: (_, __, ___) => Icon(
+                  AppIcons.tag,
+                  size: 28.r,
+                  color: AppColors.primary,
+                ),
+              )
+            : Icon(
+                AppIcons.tag,
+                size: 28.r,
+                color: AppColors.primary,
+              ),
       ),
     );
   }

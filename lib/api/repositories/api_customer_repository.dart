@@ -1621,6 +1621,10 @@ class ApiCustomerRepository implements CustomerRepository {
           (json['payment_status'] as String?) == 'PAID' ||
           json['is_paid'] == true,
       amountPaid: _paiseToRupees(json['amountPaidPaise']) ?? 0.0,
+      payments: (json['payments'] as List<dynamic>?)
+              ?.map((e) => OrderPaymentModel.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
       deliveryFee: (json['deliveryFee'] as num?)?.toDouble() ??
           (json['delivery_fee'] as num?)?.toDouble() ??
           _paiseToRupees(json['deliveryFeePaise']) ??
@@ -1766,20 +1770,27 @@ class ApiCustomerRepository implements CustomerRepository {
     );
   }
 
+  /// This is the parser that actually runs for real orders (`_parseOrder`
+  /// below, not `OrderModel.fromJson`) — 'ONLINE' used to map to
+  /// `PaymentMethod.upi`, a specific and often-wrong label, since
+  /// orders.payment_method is really just the checkout-time COD-vs-online
+  /// choice (see placeOrderFromDraft backend-side), never a real gateway
+  /// method. `PaymentMethod.online` is the honest generic instead.
   PaymentMethod _parsePaymentMethod(String? method) {
     switch (method?.toUpperCase()) {
       case 'UPI':
-      case 'ONLINE':
         return PaymentMethod.upi;
       case 'CARD':
         return PaymentMethod.card;
       case 'WALLET':
         return PaymentMethod.wallet;
+      case 'LNDRY_WALLET':
+        return PaymentMethod.lndryWallet;
       case 'COD':
       case 'CASH':
         return PaymentMethod.cod;
       default:
-        return PaymentMethod.upi;
+        return PaymentMethod.online;
     }
   }
 

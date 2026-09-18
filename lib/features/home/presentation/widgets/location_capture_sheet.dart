@@ -24,7 +24,9 @@ Future<bool> showLocationCaptureSheet(
 }) async {
   final wantsManualEntry = await AppBottomSheet.show<bool>(
     context: context,
-    title: isReprompt ? 'Location Access Turned Off' : 'Set Your Delivery Location',
+    title: isReprompt
+        ? 'Location Access Turned Off'
+        : 'Set Your Delivery Location',
     isScrollControlled: true,
     child: _LocationCaptureSheetContent(isReprompt: isReprompt),
   );
@@ -66,15 +68,17 @@ class _LocationCaptureSheetContentState
     });
 
     try {
-      final captured =
-          await ref.read(locationCaptureServiceProvider).captureCurrentLocation();
+      final captured = await ref
+          .read(locationCaptureServiceProvider)
+          .captureCurrentLocation();
 
       if (!Env.shouldBypassServiceability) {
-        final error = await ref.read(addressServiceabilityValidatorProvider).validate(
-              lat: captured.latitude,
-              lng: captured.longitude,
-              pincode: captured.pincode,
-            );
+        final error =
+            await ref.read(addressServiceabilityValidatorProvider).validate(
+                  lat: captured.latitude,
+                  lng: captured.longitude,
+                  pincode: captured.pincode,
+                );
         if (error != null) {
           if (mounted) {
             setState(() {
@@ -90,8 +94,17 @@ class _LocationCaptureSheetContentState
       final address = AddressModel(
         id: '',
         userId: user?.id ?? '',
-        line1: captured.line1,
-        line2: captured.formattedAddress.isNotEmpty ? captured.formattedAddress : null,
+        // Deliberately blank, not `captured.line1` — that's just the
+        // GPS-reverse-geocoded street/locality name, not a real flat/house
+        // number. Auto-filling it here meant every auto-detected address
+        // silently "had" a flat number that was never actually the user's,
+        // so the checkout completeness guard could never catch it. Leave
+        // it empty; the guard sends them to fill in the real one before
+        // their first order.
+        line1: '',
+        line2: captured.formattedAddress.isNotEmpty
+            ? captured.formattedAddress
+            : null,
         city: captured.city,
         state: captured.state.isNotEmpty ? captured.state : captured.city,
         pincode: captured.pincode,
@@ -136,7 +149,8 @@ class _LocationCaptureSheetContentState
         _LocationSheetError.network,
       );
     } catch (_) {
-      _setError('Something went wrong. Please try again.', _LocationSheetError.unknown);
+      _setError('Something went wrong. Please try again.',
+          _LocationSheetError.unknown);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -160,33 +174,28 @@ class _LocationCaptureSheetContentState
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final showOpenSettings = _errorKind == _LocationSheetError.serviceDisabled ||
-        _errorKind == _LocationSheetError.permissionDeniedForever;
+    final showOpenSettings =
+        _errorKind == _LocationSheetError.serviceDisabled ||
+            _errorKind == _LocationSheetError.permissionDeniedForever;
 
     return SingleChildScrollView(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 96.r,
-              height: 96.r,
-              decoration: BoxDecoration(
-                color: isDark
-                    ? AppColors.darkSurfaceContainerHigh
-                    : AppColors.primaryContainer,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                AppIcons.location,
-                size: 44.r,
-                color: AppColors.primary,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(24.r),
+            child: AspectRatio(
+              aspectRatio: 2.35,
+              child: Image.asset(
+                'assets/images/img/loc_pop_icon.png',
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+                semanticLabel: 'LNDRY location map illustration',
               ),
             ),
           ),
-          Gap(24.h),
+          Gap(20.h),
           Text(
             widget.isReprompt
                 ? 'We noticed location access is off. Turn it back on so we can '
@@ -215,7 +224,8 @@ class _LocationCaptureSheetContentState
                   Expanded(
                     child: Text(
                       _errorMessage!,
-                      style: AppTypography.bodySmall.copyWith(color: AppColors.error),
+                      style: AppTypography.bodySmall
+                          .copyWith(color: AppColors.error),
                     ),
                   ),
                 ],
@@ -223,8 +233,7 @@ class _LocationCaptureSheetContentState
             ),
           ],
           Gap(32.h),
-          AppButton(
-            label: 'Use Current Location',
+          _SheetGradientButton(
             isLoading: _isLoading,
             onPressed: _onUseCurrentLocation,
           ),
@@ -238,11 +247,108 @@ class _LocationCaptureSheetContentState
             ),
           ],
           Gap(12.h),
-          AppButton.text(
-            label: 'Enter Address Manually',
-            onPressed: () => Navigator.of(context).pop(true),
+          SizedBox(
+            height: 58.h,
+            child: OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).pop(true),
+              icon: Icon(Icons.location_on_outlined, size: 24.r),
+              label: Expanded(
+                child: Text(
+                  'Enter location manually',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.titleMedium.copyWith(
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: Color(0xFFBFB5FF), width: 1.5),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(22.r),
+                ),
+              ),
+            ),
+          ),
+          Gap(4.h),
+          Align(
+            alignment: Alignment.center,
+            child: Text(
+              'Your location is only used to improve your experience.',
+              textAlign: TextAlign.center,
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.onSurfaceVariant,
+              ),
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SheetGradientButton extends StatelessWidget {
+  const _SheetGradientButton(
+      {required this.isLoading, required this.onPressed});
+
+  final bool isLoading;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 60.h,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF9078FF), Color(0xFF5538DB)],
+          ),
+          borderRadius: BorderRadius.circular(32.r),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x3D7154E8),
+              blurRadius: 16,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: ElevatedButton(
+          onPressed: isLoading ? null : onPressed,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.transparent,
+            shadowColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(32.r),
+            ),
+          ),
+          child: isLoading
+              ? const CircularProgressIndicator(color: Colors.white)
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Use current location',
+                      style: AppTypography.titleMedium.copyWith(
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(width: 16.w),
+                    Container(
+                      width: 42.r,
+                      height: 42.r,
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.near_me_rounded,
+                        color: Color(0xFF5D45D8),
+                        size: 22,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ),
     );
   }

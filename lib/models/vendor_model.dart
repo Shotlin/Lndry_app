@@ -29,6 +29,7 @@ class VendorModel with _$VendorModel {
     /// Distance from user's default address (km). Populated by discovery API.
     double? distanceKm,
     DateTime? createdAt,
+    @Default(false) bool expressPickupAvailable,
   }) = _VendorModel;
 
   factory VendorModel.fromJson(Map<String, dynamic> json) =>

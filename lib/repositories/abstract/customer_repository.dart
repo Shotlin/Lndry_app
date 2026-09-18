@@ -125,7 +125,8 @@ abstract interface class CustomerRepository {
   Future<OrderDraftResult> prepareOrder({
     required String quoteId,
     required String addressId,
-    required String slotId,
+    String? slotId,
+    bool isExpressPickup = false,
     String? couponCode,
   });
 

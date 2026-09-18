@@ -49,6 +49,16 @@ class _OffersPageState extends ConsumerState<OffersPage> {
           context,
           result.message ?? 'Coupon applied! It\'ll be ready in your cart.',
         );
+        // Hand control back to wherever this page was opened from (Checkout,
+        // Cart, or Profile) so the code above is actually picked up right
+        // away, instead of leaving the customer stranded here with no
+        // indication the applied coupon is now just sitting in the
+        // background — a brief pause first so the success toast above is
+        // still readable before the page transitions away.
+        if (context.canPop()) {
+          await Future<void>.delayed(const Duration(milliseconds: 600));
+          if (mounted && context.canPop()) context.pop();
+        }
       } else {
         AppSnackBar.showError(
           context,

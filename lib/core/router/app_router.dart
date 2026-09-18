@@ -1,5 +1,3 @@
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +5,7 @@ import 'app_routes.dart';
 import '../auth/auth_gate.dart';
 import '../design/design_system.dart';
 import '../widgets/milestone_perks_card.dart';
+import '../../features/cart/presentation/providers/cart_providers.dart';
 import '../../providers/auth_provider.dart';
 
 // ── Page imports ──────────────────────────────────────────────────────────────
@@ -254,8 +253,19 @@ final List<RouteBase> _routes = [
   GoRoute(
     path: AppRoutes.mapAddress,
     name: AppRouteNames.mapAddress,
-    pageBuilder: (c, s) =>
-        _slideTransition(context: c, state: s, child: const MapAddressPage()),
+    pageBuilder: (c, s) {
+      final args = s.extra as MapAddressArgs?;
+      return _slideTransition(
+        context: c,
+        state: s,
+        child: MapAddressPage(
+          existingAddress: args?.existingAddress,
+          isEditingExisting: args?.isEditingExisting ?? false,
+          requireFlatNumber: args?.requireFlatNumber ?? false,
+          prefilledLocation: args?.prefilledLocation,
+        ),
+      );
+    },
   ),
 
   // ── Vendor discovery (outside shell so no bottom nav shown) ───────────────
@@ -416,6 +426,20 @@ final List<RouteBase> _routes = [
             GoRoute(
               path: 'offers',
               name: AppRouteNames.offers,
+              // Pinned to the root navigator: unlike its siblings here,
+              // this route is also pushed from Checkout (`checkout_page.dart`
+              // "View all"), which lives OUTSIDE this StatefulShellBranch.
+              // Without this, reaching it via that cross-shell push made
+              // go_router construct a second nested dashboard-shell instance
+              // to satisfy the deep `/profile/offers` path, which rendered
+              // blank (bottom nav visible, no page content) instead of the
+              // Coupons & Offers screen. Pushing straight onto the root
+              // navigator matches how every other full-page, no-bottom-nav
+              // screen in this router (checkout, payment, vendor details...)
+              // is already reached, and is unaffected for the existing
+              // in-shell entry point (Profile page), since this is still a
+              // plain full-screen push there either way.
+              parentNavigatorKey: rootNavigatorKey,
               pageBuilder: (c, s) => _slideTransition(
                   context: c, state: s, child: const OffersPage()),
             ),
@@ -447,10 +471,18 @@ class _DashboardShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final safeBottom = MediaQuery.paddingOf(context).bottom;
     final navHeight = 64.h;
     final navSide = 28.w;
-    final navBottom = 8.h + safeBottom;
+
+    // The bottom nav has no Cart tab button (index 2 is reachable only via
+    // "Continue" on a vendor page), so cartStateProvider's real server cart
+    // was never fetched unless the customer had already opened Cart or just
+    // added an item — leaving it at its empty default everywhere else,
+    // including here. MilestonePerksCard needs the real cart to decide
+    // whether to show at all, so kick off the (idempotent — see
+    // CartNotifier.init) fetch as soon as the shell itself builds, not just
+    // when a tab that happens to touch cart state is visited.
+    ref.read(cartStateProvider.notifier).init();
 
     return PopScope(
       canPop: navigationShell.currentIndex == 0,
@@ -459,129 +491,89 @@ class _DashboardShell extends ConsumerWidget {
         navigationShell.goBranch(0);
       },
       child: Scaffold(
-        // Safety-net fallback only — tab content is now full-bleed (see
-        // below), so this rarely paints. Kept non-transparent because a
-        // fully transparent Scaffold here renders as a black void on
-        // Android whenever anything (overscroll bounce, page transition)
-        // exposes it, which is worse than the flat-white "box" this used
-        // to show behind the pill.
         backgroundColor: AppColors.background,
         body: Stack(
-          clipBehavior: Clip.none,
           children: [
-            // Tab content fills the whole screen edge-to-edge — no reserved
-            // clearance band of any kind behind the pill. Reserving extra
-            // bottom inset here (as a previous version of this did) always
-            // paints as a solid Scaffold-background rectangle wherever real
-            // content doesn't reach — invisible when that color was white,
-            // impossible to miss once the app background became a solid
-            // color. The pill only ever floats over genuine, live content
-            // now (softened by its own BackdropFilter blur below), never
-            // over a dead reserved strip.
             Positioned.fill(
               child: navigationShell,
             ),
-            // Milestone perks card — floats directly above the nav pill,
-            // real box on purpose (unlike the pill, this is meant to read
-            // as a distinct card). Renders nothing when there's no cart or
-            // no eligible offer, so it never reserves space it isn't using.
             Positioned(
               left: navSide,
               right: navSide,
-              bottom: navBottom + navHeight + 12.h,
+              bottom: 12.h,
               child: const MilestonePerksCard(),
             ),
-            // Fully custom floating pill — deliberately not Scaffold's
-            // bottomNavigationBar / Material's NavigationBar or
-            // BottomNavigationBar. Nothing behind it but real, live tab
-            // content: whatever card/section happens to scroll underneath
-            // is frosted via BackdropFilter instead of being left as a
-            // hard-edged shape poking out from behind the pill, so no
-            // matter what's back there it always reads as "glass", never
-            // as a stray box.
-            Positioned(
-              left: navSide,
-              right: navSide,
-              bottom: navBottom,
-              child: SizedBox(
-                height: navHeight,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadius.full.r),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient:
-                            isDark ? null : AppColors.signInSheetGradient,
-                        color: isDark
-                            ? AppColors.darkSurface.withValues(alpha: 0.7)
-                            : AppColors.white.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(AppRadius.full.r),
-                        border: Border.all(
-                          color: AppColors.white
-                              .withValues(alpha: isDark ? 0.14 : 0.85),
-                          width: 1,
-                        ),
-                        boxShadow: [
-                          // Soft, wide, low-opacity ambient shadow — reads
-                          // as "hovering" rather than a hard drop shadow.
-                          BoxShadow(
-                            color:
-                                (isDark ? AppColors.black : AppColors.primary)
-                                    .withValues(alpha: isDark ? 0.35 : 0.16),
-                            blurRadius: 24,
-                            spreadRadius: -4,
-                            offset: const Offset(0, 10),
-                          ),
-                          BoxShadow(
-                            color: AppColors.black.withValues(alpha: 0.06),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4.w),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                        _NavItem(
-                          shell: navigationShell,
-                          index: 0,
-                          unselected: AppIcons.homeOutlined,
-                          selected: AppIcons.home,
-                          label: 'Home',
-                        ),
-                        _NavItem(
-                          shell: navigationShell,
-                          index: 1,
-                          unselected: Icons.grid_view_outlined,
-                          selected: Icons.grid_view_rounded,
-                          label: 'Explore',
-                        ),
-                        _NavItem(
-                          shell: navigationShell,
-                          index: 3,
-                          unselected: AppIcons.ordersOutlined,
-                          selected: AppIcons.orders,
-                          label: 'Orders',
-                        ),
-                        _NavItem(
-                          shell: navigationShell,
-                          index: 4,
-                          unselected: AppIcons.profileOutlined,
-                          selected: AppIcons.profile,
-                          label: 'Profile',
-                        ),
-                      ],
-                        ),
-                      ),
+          ],
+        ),
+        bottomNavigationBar: SafeArea(
+          top: false,
+          minimum: EdgeInsets.only(
+            left: navSide,
+            right: navSide,
+            bottom: 8.h,
+          ),
+          child: SizedBox(
+            height: navHeight,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkSurface : AppColors.white,
+                borderRadius: BorderRadius.circular(AppRadius.full.r),
+                border: Border.all(
+                  color: isDark
+                      ? AppColors.darkOutlineVariant
+                      : AppColors.outlineVariant,
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.black.withValues(
+                      alpha: isDark ? 0.45 : 0.10,
                     ),
+                    blurRadius: 20,
+                    spreadRadius: -4,
+                    offset: const Offset(0, 8),
                   ),
+                  BoxShadow(
+                    color: AppColors.black.withValues(alpha: 0.05),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4.w),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _NavItem(
+                      shell: navigationShell,
+                      index: 0,
+                      unselected: AppIcons.homeOutlined,
+                      selected: AppIcons.home,
+                    ),
+                    _NavItem(
+                      shell: navigationShell,
+                      index: 1,
+                      unselected: Icons.grid_view_outlined,
+                      selected: Icons.grid_view_rounded,
+                    ),
+                    _NavItem(
+                      shell: navigationShell,
+                      index: 3,
+                      unselected: AppIcons.ordersOutlined,
+                      selected: AppIcons.orders,
+                    ),
+                    _NavItem(
+                      shell: navigationShell,
+                      index: 4,
+                      unselected: AppIcons.profileOutlined,
+                      selected: AppIcons.profile,
+                    ),
+                  ],
                 ),
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -594,14 +586,12 @@ class _NavItem extends ConsumerWidget {
     required this.index,
     required this.unselected,
     required this.selected,
-    required this.label,
   });
 
   final StatefulNavigationShell shell;
   final int index;
   final IconData unselected;
   final IconData selected;
-  final String label;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -648,61 +638,20 @@ class _NavItem extends ConsumerWidget {
           }
           goToBranch();
         },
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOutCubic,
-              padding: EdgeInsets.all(isSelected ? 6.r : 0),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? AppColors.primaryContainer
-                    : AppColors.transparent,
-                shape: BoxShape.circle,
-                boxShadow: isSelected
-                    ? [
-                        BoxShadow(
-                          color: AppColors.primary.withValues(alpha: 0.28),
-                          blurRadius: 14,
-                          offset: const Offset(0, 4),
-                        ),
-                      ]
-                    : null,
-              ),
-              child: AnimatedScale(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeOutCubic,
-                scale: isSelected ? 1.08 : 1.0,
-                child: Icon(
-                  isSelected ? selected : unselected,
-                  color:
-                      isSelected ? AppColors.primary : AppColors.textSecondary,
-                  size: 21.r,
-                ),
-              ),
+        // No selected-state pill/circle behind the icon by design — only the
+        // icon itself changes (outline → filled glyph, plus a color swap to
+        // the brand highlight) so the bar stays flat and uncluttered.
+        child: Center(
+          child: AnimatedScale(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            scale: isSelected ? 1.1 : 1.0,
+            child: Icon(
+              isSelected ? selected : unselected,
+              color: isSelected ? AppColors.primary : AppColors.black,
+              size: isSelected ? 30.r : 27.r,
             ),
-            const Gap(4),
-            Flexible(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 250),
-                  style: AppTypography.caption.copyWith(
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                    color: isSelected
-                        ? AppColors.primary
-                        : AppColors.textSecondary,
-                  ),
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                  ),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

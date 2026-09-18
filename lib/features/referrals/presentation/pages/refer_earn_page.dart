@@ -1,6 +1,11 @@
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../../../../config/env.dart';
+import '../../../../core/constants/asset_constants.dart';
 import '../../../../core/design/design_system.dart';
+import '../../../../core/design/premium_type.dart';
 import '../../../../core/extensions/extensions.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../../../repositories/repositories.dart';
@@ -15,7 +20,24 @@ class ReferEarnPage extends ConsumerWidget {
 
   void _copyCode(BuildContext context, String code) {
     Clipboard.setData(ClipboardData(text: code));
-    AppSnackBar.showSuccess(context, 'Code "$code" copied — share it with a friend!');
+    AppSnackBar.showSuccess(
+        context, 'Code "$code" copied — share it with a friend!');
+  }
+
+  /// The Play Store link carries the code as the install `referrer` value —
+  /// Google's own Play Install Referrer mechanism hands that value back to
+  /// the app on first launch after a fresh install, so a friend who taps
+  /// this link never has to type the code by hand (see
+  /// ReferralAttributionService). Manual entry at signup still works too.
+  void _share(BuildContext context, String code) {
+    SharePlus.instance.share(
+      ShareParams(
+        text: 'Join me on LNDRY — fresh, doorstep laundry & dry cleaning! '
+            'Use my code $code when you sign up and we both earn rewards.\n\n'
+            '${Env.playStoreUrl}&referrer=$code',
+        subject: 'Get rewards on LNDRY',
+      ),
+    );
   }
 
   @override
@@ -28,9 +50,16 @@ class ReferEarnPage extends ConsumerWidget {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text('Refer & Earn', style: AppTypography.titleLarge),
+        leading: Padding(
+          padding: EdgeInsets.only(left: AppSpacing.sm.w),
+          child: _CircleIconButton(
+            icon: AppIcons.back,
+            onTap: () => Navigator.of(context).maybePop(),
+          ),
+        ),
+        title: Image.asset(AssetConstants.logoWordmark, height: 22.h),
         centerTitle: true,
-        backgroundColor: isDark ? AppColors.darkSurface : AppColors.surface,
+        backgroundColor: theme.scaffoldBackgroundColor,
         elevation: 0,
       ),
       body: SafeArea(
@@ -43,6 +72,19 @@ class ReferEarnPage extends ConsumerWidget {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: EdgeInsets.all(AppSpacing.pagePaddingH.w),
             children: [
+              Text(
+                'Refer & Earn',
+                textAlign: TextAlign.center,
+                style: premiumFont(24, weight: FontWeight.w800),
+              ),
+              Gap(4.h),
+              Text(
+                'More friends. More laundry, More rewards.',
+                textAlign: TextAlign.center,
+                style: premiumFont(13,
+                    weight: FontWeight.w500, color: AppColors.textSecondary),
+              ),
+              Gap(AppSpacing.lg.h),
               summaryAsync.when(
                 data: (summary) => Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -64,7 +106,8 @@ class ReferEarnPage extends ConsumerWidget {
                 loading: () => Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const _HeroCodeCard(code: null, onCopy: null, isLoading: true),
+                    const _HeroCodeCard(
+                        code: null, onCopy: null, isLoading: true),
                     Gap(AppSpacing.md.h),
                     const _StatsStrip(summary: null),
                   ],
@@ -75,19 +118,35 @@ class ReferEarnPage extends ConsumerWidget {
                 ),
               ),
               Gap(AppSpacing.sectionGap.h),
-              Text('Who You\'ve Referred', style: AppTypography.titleMedium),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text("Who You've Referred",
+                      style: premiumFont(16, weight: FontWeight.w700)),
+                  if (historyAsync.valueOrNull?.isNotEmpty ?? false)
+                    Row(
+                      children: [
+                        Text(
+                          'View all',
+                          style: premiumFont(13,
+                              weight: FontWeight.w700,
+                              color: AppColors.primary),
+                        ),
+                        Icon(AppIcons.forward,
+                            size: 13.r, color: AppColors.primary),
+                      ],
+                    ),
+                ],
+              ),
               Gap(AppSpacing.cardGap.h),
               historyAsync.when(
                 data: (history) => history.isEmpty
-                    ? const AppEmptyState(
-                        icon: AppIcons.gift,
-                        title: 'No referrals yet',
-                        subtitle: 'Share your code above — you\'ll see everyone you\'ve referred here.',
-                      )
+                    ? const _EmptyHistoryCard()
                     : Column(
                         children: history
                             .map((item) => Padding(
-                                  padding: EdgeInsets.only(bottom: AppSpacing.sm.h),
+                                  padding:
+                                      EdgeInsets.only(bottom: AppSpacing.sm.h),
                                   child: _ReferralTile(item: item),
                                 ))
                             .toList(),
@@ -101,8 +160,65 @@ class ReferEarnPage extends ConsumerWidget {
                   onRetry: () => ref.invalidate(referralHistoryProvider),
                 ),
               ),
+              Gap(AppSpacing.lg.h),
+              summaryAsync.maybeWhen(
+                data: (summary) => summary.referralCode == null
+                    ? const SizedBox.shrink()
+                    : _ShareButton(
+                        onTap: () => _share(context, summary.referralCode!)),
+                orElse: () => const SizedBox.shrink(),
+              ),
+              Gap(AppSpacing.lg.h),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _footerLine(isDark),
+                  Gap(10.w),
+                  Text(
+                    'CLEANER CLOTHES. HAPPIER PEOPLE.',
+                    style: premiumFont(
+                      10,
+                      weight: FontWeight.w600,
+                      letterSpacing: 1.2,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                  Gap(10.w),
+                  _footerLine(isDark),
+                ],
+              ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _footerLine(bool isDark) => Container(
+        width: 32.w,
+        height: 1,
+        color: isDark ? AppColors.darkOutlineVariant : AppColors.outlineVariant,
+      );
+}
+
+class _CircleIconButton extends StatelessWidget {
+  const _CircleIconButton({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDark;
+    return Material(
+      color: isDark ? AppColors.darkSurfaceContainer : AppColors.offerLavender,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.all(10.r),
+          child: Icon(icon, size: 18.r, color: AppColors.primary),
         ),
       ),
     );
@@ -110,7 +226,8 @@ class ReferEarnPage extends ConsumerWidget {
 }
 
 class _HeroCodeCard extends StatelessWidget {
-  const _HeroCodeCard({required this.code, required this.onCopy, this.isLoading = false});
+  const _HeroCodeCard(
+      {required this.code, required this.onCopy, this.isLoading = false});
 
   final String? code;
   final VoidCallback? onCopy;
@@ -118,75 +235,141 @@ class _HeroCodeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cardPad = AppSpacing.cardPadding.w * 1.25;
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(AppSpacing.cardPadding.w * 1.25),
       decoration: BoxDecoration(
-        gradient: AppColors.primaryGradient,
-        borderRadius: BorderRadius.circular(AppRadius.card.r),
-        boxShadow: AppElevation.medium,
+        borderRadius: BorderRadius.circular(AppRadius.xxl.r),
+        boxShadow: AppElevation.low,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
         children: [
-          Row(
-            children: [
-              Icon(AppIcons.gift, color: Colors.white, size: 20.r),
-              Gap(8.w),
-              Text(
-                'Invite friends, earn together',
-                style: AppTypography.labelMedium.copyWith(
-                  color: Colors.white.withValues(alpha: 0.9),
-                  fontWeight: FontWeight.w600,
+          // The illustration is the full card background, edge to edge —
+          // not a boxed-in strip beside the text.
+          Positioned.fill(
+            child: Image.asset(AssetConstants.referEmptyArt, fit: BoxFit.cover),
+          ),
+          // A soft left-to-right scrim keeps the text legible over the
+          // busier parts of the artwork without hiding any of it.
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    Colors.white.withValues(alpha: 0.78),
+                    Colors.white.withValues(alpha: 0.15),
+                  ],
+                  stops: const [0.0, 0.68],
                 ),
               ),
-            ],
-          ),
-          Gap(16.h),
-          Text(
-            'Your Referral Code',
-            style: AppTypography.labelSmall.copyWith(
-              color: Colors.white.withValues(alpha: 0.75),
             ),
           ),
-          Gap(6.h),
-          isLoading
-              ? SizedBox(
-                  height: 34.h,
-                  width: 140.w,
-                  child: const LinearProgressIndicator(color: Colors.white24),
-                )
-              : GestureDetector(
-                  onTap: onCopy,
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 10.h),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.16),
-                      borderRadius: BorderRadius.circular(AppRadius.input.r),
-                      border: Border.all(color: Colors.white38),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          code ?? '—',
-                          style: AppTypography.headlineSmall.copyWith(
-                            color: Colors.white,
-                            letterSpacing: 2,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Gap(10.w),
-                        Icon(AppIcons.copy, size: 18.r, color: Colors.white),
-                      ],
-                    ),
+          Positioned(
+            right: 14.w,
+            bottom: 14.h,
+            child: Text(
+              'Good Loads\nTogether',
+              textAlign: TextAlign.right,
+              style: GoogleFonts.caveat(
+                fontSize: 14.sp,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary.withValues(alpha: 0.8),
+                height: 1.05,
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.all(cardPad),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'INVITE FRIENDS',
+                  style: premiumFont(
+                    11,
+                    weight: FontWeight.w700,
+                    color: AppColors.primary,
+                    letterSpacing: 1.4,
                   ),
                 ),
-          Gap(10.h),
-          Text(
-            'Tap to copy, then share it with a friend.',
-            style: AppTypography.bodySmall.copyWith(
-              color: Colors.white.withValues(alpha: 0.85),
+                Gap(6.h),
+                Text(
+                  'Invite friends,\nearn together',
+                  style: premiumFont(22, weight: FontWeight.w800, height: 1.15),
+                ),
+                Gap(8.h),
+                Text(
+                  'Share LNDRY with your friends and earn exciting rewards!',
+                  style: premiumFont(
+                    12,
+                    weight: FontWeight.w500,
+                    color: AppColors.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+                Gap(AppSpacing.md.h),
+                Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md.w, vertical: AppSpacing.sm.h),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.65),
+                    borderRadius: BorderRadius.circular(AppRadius.lg.r),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Your Referral Code',
+                              style: premiumFont(10.5,
+                                  weight: FontWeight.w600,
+                                  color: AppColors.textSecondary),
+                            ),
+                            Gap(2.h),
+                            isLoading
+                                ? SizedBox(
+                                    height: 22.h,
+                                    width: 100.w,
+                                    child: const LinearProgressIndicator(),
+                                  )
+                                : Text(
+                                    code ?? '—',
+                                    style: premiumFont(20,
+                                        weight: FontWeight.w800,
+                                        letterSpacing: 1.5),
+                                  ),
+                          ],
+                        ),
+                      ),
+                      if (!isLoading)
+                        InkWell(
+                          onTap: onCopy,
+                          borderRadius: BorderRadius.circular(AppRadius.sm.r),
+                          child: Padding(
+                            padding: EdgeInsets.all(6.r),
+                            child: Icon(AppIcons.copy,
+                                size: 20.r, color: AppColors.primary),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (!isLoading) ...[
+                  Gap(8.h),
+                  Text(
+                    'Tap to copy, then share it with a friend.',
+                    style: premiumFont(10.5,
+                        weight: FontWeight.w500, color: AppColors.primary),
+                  ),
+                ],
+              ],
             ),
           ),
         ],
@@ -204,37 +387,83 @@ class _StatsStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(child: _StatTile(label: 'Invited', value: summary?.totalReferred)),
+        Expanded(
+          child: _StatTile(
+            icon: Icons.people_alt_rounded,
+            label: 'Invited',
+            value: summary?.totalReferred,
+          ),
+        ),
         Gap(AppSpacing.sm.w),
-        Expanded(child: _StatTile(label: 'Pending', value: summary?.pending)),
+        Expanded(
+          child: _StatTile(
+            icon: Icons.schedule_rounded,
+            label: 'Pending',
+            value: summary?.pending,
+          ),
+        ),
         Gap(AppSpacing.sm.w),
-        Expanded(child: _StatTile(label: 'Completed', value: summary?.completed)),
+        Expanded(
+          child: _StatTile(
+            icon: AppIcons.success,
+            label: 'Completed',
+            value: summary?.completed,
+            filled: true,
+          ),
+        ),
       ],
     );
   }
 }
 
 class _StatTile extends StatelessWidget {
-  const _StatTile({required this.label, required this.value});
+  const _StatTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.filled = false,
+  });
 
+  final IconData icon;
   final String label;
   final int? value;
+  final bool filled;
 
   @override
   Widget build(BuildContext context) {
-    return AppCard.outlined(
-      padding: EdgeInsets.symmetric(vertical: AppSpacing.sm.h, horizontal: AppSpacing.sm.w),
+    final isDark = context.isDark;
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: AppSpacing.md.h),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurfaceContainer : AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg.r),
+        border: Border.all(
+          color:
+              isDark ? AppColors.darkOutlineVariant : AppColors.outlineVariant,
+        ),
+      ),
       child: Column(
         children: [
+          Container(
+            width: 36.r,
+            height: 36.r,
+            decoration: BoxDecoration(
+              color: filled ? AppColors.primary : AppColors.offerLavender,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon,
+                size: 18.r, color: filled ? Colors.white : AppColors.primary),
+          ),
+          Gap(8.h),
           Text(
             value?.toString() ?? '—',
-            style: AppTypography.titleLarge.copyWith(fontWeight: FontWeight.bold),
+            style: premiumFont(19, weight: FontWeight.w800),
           ),
           Gap(2.h),
           Text(
             label,
-            style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
-            textAlign: TextAlign.center,
+            style: premiumFont(11,
+                weight: FontWeight.w500, color: AppColors.textSecondary),
           ),
         ],
       ),
@@ -264,42 +493,146 @@ class _TermsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final referrerReward =
-        _rewardLabel(program.referrerRewardType, program.referrerRewardAmount, program.referrerRewardCount);
-    final refereeReward =
-        _rewardLabel(program.refereeRewardType, program.refereeRewardAmount, program.refereeRewardCount);
+    final referrerReward = _rewardLabel(program.referrerRewardType,
+        program.referrerRewardAmount, program.referrerRewardCount);
+    final refereeReward = _rewardLabel(program.refereeRewardType,
+        program.refereeRewardAmount, program.refereeRewardCount);
 
-    return AppCard.outlined(
-      backgroundColor: AppColors.offerLavender.withValues(alpha: 0.5),
-      borderColor: AppColors.primary.withValues(alpha: 0.2),
+    return Container(
+      padding: EdgeInsets.all(AppSpacing.md.w),
+      decoration: BoxDecoration(
+        color: AppColors.offerLavender.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(AppRadius.lg.r),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.celebration_rounded, color: AppColors.primary, size: 22.r),
+              Icon(Icons.celebration_rounded,
+                  color: AppColors.primary, size: 20.r),
               Gap(AppSpacing.sm.w),
               Expanded(
-                child: Text(
-                  program.name,
-                  style: AppTypography.titleSmall.copyWith(fontWeight: FontWeight.bold),
-                ),
+                child: Text(program.name,
+                    style: premiumFont(14, weight: FontWeight.w800)),
               ),
             ],
           ),
           Gap(AppSpacing.sm.h),
           Text(
             'You get $referrerReward — your friend gets $refereeReward, once they complete their first order.',
-            style: AppTypography.bodySmall.copyWith(color: AppColors.textBlack, height: 1.4),
+            style: premiumFont(12,
+                weight: FontWeight.w500,
+                color: AppColors.textBlack,
+                height: 1.4),
           ),
-          if (program.termsText != null && program.termsText!.trim().isNotEmpty) ...[
+          if (program.termsText != null &&
+              program.termsText!.trim().isNotEmpty) ...[
             Gap(AppSpacing.sm.h),
             Text(
               program.termsText!,
-              style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+              style: premiumFont(10.5,
+                  weight: FontWeight.w400, color: AppColors.textSecondary),
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _EmptyHistoryCard extends StatelessWidget {
+  const _EmptyHistoryCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDark;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppColors.darkSurfaceContainer
+            : AppColors.offerLavender.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(AppRadius.lg.r),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          AspectRatio(
+            aspectRatio: 700 / 394,
+            child: Image.asset(
+              AssetConstants.referHeroArt,
+              width: double.infinity,
+              fit: BoxFit.cover,
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.symmetric(
+                vertical: AppSpacing.lg.h, horizontal: AppSpacing.lg.w),
+            child: Column(
+              children: [
+                Text('No referrals yet',
+                    style: premiumFont(15, weight: FontWeight.w800)),
+                Gap(4.h),
+                Text(
+                  "Share your code above — you'll see everyone you've referred here.",
+                  textAlign: TextAlign.center,
+                  style: premiumFont(12,
+                      weight: FontWeight.w500,
+                      color: AppColors.textSecondary,
+                      height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShareButton extends StatelessWidget {
+  const _ShareButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 54.h,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: AppColors.primaryGradient,
+          borderRadius: BorderRadius.circular(AppRadius.button.r),
+          boxShadow: AppElevation.low,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.button.r),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(AppRadius.button.r),
+            onTap: onTap,
+            child: Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(AppIcons.share, color: Colors.white, size: 18.r),
+                  Gap(10.w),
+                  Text(
+                    'Share & Earn More',
+                    style: premiumFont(15,
+                        weight: FontWeight.w700, color: Colors.white),
+                  ),
+                  Gap(10.w),
+                  Icon(Icons.arrow_forward_rounded,
+                      color: Colors.white, size: 18.r),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -326,13 +659,14 @@ class _ReferralTile extends StatelessWidget {
     final status = _timelineStatus;
 
     return AppCard.outlined(
-      backgroundColor: isDark ? AppColors.darkSurfaceContainer : AppColors.surface,
+      backgroundColor:
+          isDark ? AppColors.darkSurfaceContainer : AppColors.surface,
       child: Row(
         children: [
           Container(
             width: 40.r,
             height: 40.r,
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: AppColors.primaryContainer,
               shape: BoxShape.circle,
             ),
@@ -345,19 +679,22 @@ class _ReferralTile extends StatelessWidget {
               children: [
                 Text(
                   item.refereeName ?? 'A friend',
-                  style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+                  style: premiumFont(14, weight: FontWeight.w700),
                 ),
                 if (item.refereePhoneMasked != null) ...[
                   Gap(2.h),
                   Text(
                     item.refereePhoneMasked!,
-                    style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+                    style: premiumFont(11,
+                        weight: FontWeight.w400,
+                        color: AppColors.textSecondary),
                   ),
                 ],
                 Gap(2.h),
                 Text(
                   'Invited ${item.refereeSignedUpAt.toDayDate}',
-                  style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                  style: premiumFont(10.5,
+                      weight: FontWeight.w400, color: AppColors.textMuted),
                 ),
               ],
             ),

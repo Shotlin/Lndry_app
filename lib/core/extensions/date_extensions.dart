@@ -1,32 +1,42 @@
 import 'package:intl/intl.dart';
 
 /// DateTime extensions for the LNDRY app.
+///
+/// LNDRY only operates in India, so every date/time shown to a user must
+/// read as IST (UTC+5:30) regardless of the device's own timezone —
+/// `.toLocal()` isn't good enough, since a misconfigured or travelling
+/// device would then silently show the wrong time (and, near midnight,
+/// the wrong calendar date entirely).
 extension DateTimeExt on DateTime {
-  // ── Formatters ────────────────────────────────────────────────────────────
+  /// This instant's wall-clock fields shifted to IST, independent of this
+  /// DateTime's own UTC/local flag or the device's timezone.
+  DateTime get ist => toUtc().add(const Duration(hours: 5, minutes: 30));
+
+  // ── Formatters (always IST) ────────────────────────────────────────────────
 
   /// "27 Jun 2026"
-  String get toDateString => DateFormat('dd MMM yyyy').format(this);
+  String get toDateString => DateFormat('dd MMM yyyy').format(ist);
 
   /// "09:30 PM"
-  String get toTimeString => DateFormat('hh:mm a').format(this);
+  String get toTimeString => DateFormat('hh:mm a').format(ist);
 
   /// "27 Jun 2026, 09:30 PM"
-  String get toDateTimeString => DateFormat('dd MMM yyyy, hh:mm a').format(this);
+  String get toDateTimeString => DateFormat('dd MMM yyyy, hh:mm a').format(ist);
 
   /// "27 Jun"
-  String get toDayMonth => DateFormat('dd MMM').format(this);
+  String get toDayMonth => DateFormat('dd MMM').format(ist);
 
   /// "June 2026"
-  String get toMonthYear => DateFormat('MMMM yyyy').format(this);
+  String get toMonthYear => DateFormat('MMMM yyyy').format(ist);
 
   /// "Sat, 27 Jun"
-  String get toDayDate => DateFormat('EEE, dd MMM').format(this);
+  String get toDayDate => DateFormat('EEE, dd MMM').format(ist);
 
   /// "Saturday"
-  String get toFullDay => DateFormat('EEEE').format(this);
+  String get toFullDay => DateFormat('EEEE').format(ist);
 
   /// "Sat"
-  String get toShortDay => DateFormat('EEE').format(this);
+  String get toShortDay => DateFormat('EEE').format(ist);
 
   /// ISO 8601 UTC string
   String get toIso => toUtc().toIso8601String();
@@ -44,28 +54,34 @@ extension DateTimeExt on DateTime {
     return toDateString;
   }
 
-  // ── Comparison helpers ────────────────────────────────────────────────────
+  // ── Comparison helpers (IST calendar day) ─────────────────────────────────
   bool get isToday {
-    final n = DateTime.now();
-    return year == n.year && month == n.month && day == n.day;
+    final n = DateTime.now().ist;
+    final s = ist;
+    return s.year == n.year && s.month == n.month && s.day == n.day;
   }
 
   bool get isTomorrow {
-    final t = DateTime.now().add(const Duration(days: 1));
-    return year == t.year && month == t.month && day == t.day;
+    final t = DateTime.now().ist.add(const Duration(days: 1));
+    final s = ist;
+    return s.year == t.year && s.month == t.month && s.day == t.day;
   }
 
   bool get isYesterday {
-    final y = DateTime.now().subtract(const Duration(days: 1));
-    return year == y.year && month == y.month && day == y.day;
+    final y = DateTime.now().ist.subtract(const Duration(days: 1));
+    final s = ist;
+    return s.year == y.year && s.month == y.month && s.day == y.day;
   }
 
   bool get isFuture  => isAfter(DateTime.now());
   bool get isPast    => isBefore(DateTime.now());
 
-  /// Whether two DateTimes fall on the same calendar day.
-  bool isSameDay(DateTime other) =>
-      year == other.year && month == other.month && day == other.day;
+  /// Whether two DateTimes fall on the same IST calendar day.
+  bool isSameDay(DateTime other) {
+    final a = ist;
+    final b = other.ist;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
 
   // ── Manipulation ──────────────────────────────────────────────────────────
   DateTime get startOfDay => DateTime(year, month, day, 0, 0, 0);

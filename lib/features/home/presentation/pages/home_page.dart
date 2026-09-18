@@ -42,9 +42,12 @@ class _HomePageState extends ConsumerState<HomePage> {
         .addPostFrameCallback((_) => _maybeShowLocationPrompt());
   }
 
-  /// Shows the location-capture sheet when appropriate:
-  /// - the user has no saved default address (every cold start until resolved), or
-  /// - they have one but device location is currently off (once per off-cycle).
+  /// Shows the location-capture sheet only when the account has no saved
+  /// default address at all. Previously this also re-nagged an account that
+  /// already has an address whenever the device's location toggle happened
+  /// to be off — dropped per explicit product decision: once a customer has
+  /// an address on file, deliveries already have somewhere to go, so the
+  /// device-level location toggle stops being this sheet's concern.
   Future<void> _maybeShowLocationPrompt() async {
     if (!mounted || _locationPromptEvaluated) return;
     if (ref.read(authProvider) is! AuthAuthenticated) return;
@@ -57,39 +60,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     } catch (_) {
       return;
     }
-    if (!mounted) return;
+    if (!mounted || address != null) return;
 
-    if (address == null) {
-      final wantsManualEntry = await showLocationCaptureSheet(context);
-      if (wantsManualEntry && mounted) context.push(AppRoutes.mapAddress);
-      return;
-    }
-
-    bool locationOn;
-    try {
-      locationOn = await ref
-          .read(locationCaptureServiceProvider)
-          .isDeviceLocationEnabled();
-    } catch (_) {
-      return;
-    }
-    if (!mounted) return;
-
-    final storage = ref.read(storageServiceProvider);
-    if (locationOn) {
-      if (storage.getBool(AppConstants.keyLocationRepromptShown) ?? false) {
-        await storage.saveBool(AppConstants.keyLocationRepromptShown,
-            value: false);
-      }
-      return;
-    }
-
-    if (storage.getBool(AppConstants.keyLocationRepromptShown) ?? false) return;
-    await storage.saveBool(AppConstants.keyLocationRepromptShown, value: true);
-    if (!mounted) return;
-
-    final wantsManualEntry =
-        await showLocationCaptureSheet(context, isReprompt: true);
+    final wantsManualEntry = await showLocationCaptureSheet(context);
     if (wantsManualEntry && mounted) context.push(AppRoutes.mapAddress);
   }
 
@@ -188,7 +161,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
                 // ── 4. Offer Banner Carousel (Issue 1) ────────────────────────
                 const _OfferBannerCarousel(),
-                const Gap(16),
+                const Gap(12),
 
                 // ── 5. Category Scroll Row (Issue 2) ──────────────────────────
                 Padding(
@@ -221,17 +194,22 @@ class _HomePageState extends ConsumerState<HomePage> {
                     ],
                   ),
                 ),
-                const Gap(12),
+                const Gap(10),
+                // Sized to the round-circle category rail's actual content
+                // (68.r circle + label, up to 2 lines) — the old fixed
+                // 164.h was tuned for the previous bordered-card design and
+                // left a large dead gap below the rail once that card was
+                // replaced with the shorter circle-only layout.
                 SizedBox(
                   height: math.max(
-                    132.h,
-                    MediaQuery.textScalerOf(context).scale(132.h),
+                    128.h,
+                    MediaQuery.textScalerOf(context).scale(128.h),
                   ),
                   child: categoriesAsync.when(
                     data: (cats) => ListView.separated(
                       padding: EdgeInsets.symmetric(
                         horizontal: 20.w,
-                        vertical: 8.h,
+                        vertical: 4.h,
                       ),
                       clipBehavior: Clip.none,
                       scrollDirection: Axis.horizontal,
@@ -264,7 +242,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                     loading: () => ListView.separated(
                       padding: EdgeInsets.symmetric(
                         horizontal: 20.w,
-                        vertical: 8.h,
+                        vertical: 4.h,
                       ),
                       clipBehavior: Clip.none,
                       scrollDirection: Axis.horizontal,
@@ -276,10 +254,16 @@ class _HomePageState extends ConsumerState<HomePage> {
                     error: (_, __) => const SizedBox.shrink(),
                   ),
                 ),
-                const Gap(16),
+                const Gap(12),
 
                 // ── 6. Quick Schedule Card (Issue 5) ─────────────────────────
                 const _QuickScheduleCard(),
+                const Gap(24),
+
+                // ── 6b. Doorstep Pickup Promo Banner ──────────────────────────
+                _PickupBannerSection(
+                  onTap: () => StatefulNavigationShell.of(context).goBranch(1),
+                ),
                 const Gap(24),
 
                 // ── 7. Active Order Status Tracker ────────────────────────────
@@ -424,7 +408,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 itemBuilder: (context, idx) {
                   final vendor = vendors[idx];
                   return SizedBox(
-                    width: 315.w,
+                    width: 0.9.sw,
                     child: _HorizontalVendorCard(
                       vendor: vendor,
                       onTap: () => context.push('/vendor/${vendor.id}'),
@@ -442,7 +426,7 @@ class _HomePageState extends ConsumerState<HomePage> {
               itemCount: 2,
               separatorBuilder: (_, __) => const Gap(16),
               itemBuilder: (_, __) =>
-                  const AppSkeletonCard(width: 315, height: 180),
+                  AppSkeletonCard(width: 0.9.sw, height: 180.h),
             ),
           ),
           error: (_, __) => Padding(
@@ -1329,6 +1313,117 @@ class _BannerFallbackText extends StatelessWidget {
 // Quick Book Card ("Book in under a minute")
 // ═════════════════════════════════════════════════════════════════════════════
 
+/// A gently bobbing, twinkling 4-point sparkle star — spread across the
+/// full card (not clustered at the top) via fractional [x]/[y] center
+/// coordinates. A couple of larger, brighter entries act as accent
+/// "highlight" stars among the smaller ones, matching the reference art.
+class _GlowSpec {
+  const _GlowSpec(
+      this.x, this.y, this.phase, this.speed, this.size, this.opacity);
+  final double x;
+  final double y;
+  final double phase;
+  final double speed;
+  final double size;
+  final double opacity;
+}
+
+const List<_GlowSpec> _glowSpecs = [
+  _GlowSpec(-0.8, -0.5, 0.0, 1.0, 8, 0.45),
+  _GlowSpec(0.6, -0.2, 0.4, 0.8, 16, 0.55), // highlight
+  _GlowSpec(0.85, 0.35, 0.2, 1.2, 7, 0.35),
+  _GlowSpec(-0.4, 0.1, 0.7, 0.9, 9, 0.4),
+  _GlowSpec(0.15, 0.6, 0.5, 1.1, 14, 0.5), // highlight
+  _GlowSpec(-0.9, 0.65, 0.85, 0.95, 8, 0.3),
+  _GlowSpec(0.35, -0.7, 0.55, 1.05, 6, 0.35),
+  _GlowSpec(-0.15, 0.85, 0.3, 0.85, 7, 0.3),
+];
+
+/// Animated background particle layer for the quick-schedule card: softly
+/// bobbing/twinkling 4-point sparkle stars spread across the full height
+/// (not just the top edge). A single [AnimationController] drives one
+/// [CustomPainter] paint pass per frame — no per-particle widgets/rebuilds
+/// — wrapped in a [RepaintBoundary] so only this small layer repaints,
+/// keeping it cheap even while ticking continuously behind live content.
+class _ParticleField extends StatefulWidget {
+  const _ParticleField();
+
+  @override
+  State<_ParticleField> createState() => _ParticleFieldState();
+}
+
+class _ParticleFieldState extends State<_ParticleField>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 6),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) => CustomPaint(
+          painter: _ParticlePainter(_controller.value),
+          size: Size.infinite,
+        ),
+      ),
+    );
+  }
+}
+
+class _ParticlePainter extends CustomPainter {
+  _ParticlePainter(this.t);
+  final double t;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+
+    for (final g in _glowSpecs) {
+      final localT = t * g.speed + g.phase;
+      final bob = math.sin(2 * math.pi * localT) * 0.06 * size.height;
+      final drift = math.cos(2 * math.pi * localT * 0.7) * 0.03 * size.width;
+      final dx = (g.x + 1) / 2 * size.width + drift;
+      final dy = (g.y + 1) / 2 * size.height + bob;
+      final twinkle = 0.5 + 0.5 * math.sin(2 * math.pi * localT * 1.4);
+      paint.color = AppColors.white.withValues(alpha: g.opacity * twinkle);
+      _drawStar(canvas, Offset(dx, dy), g.size.r, paint);
+    }
+  }
+
+  /// A classic 4-point sparkle/star: two overlapping elongated diamonds
+  /// (concave between the tips), matching the small sparkle mark on the
+  /// premium-card artwork. Cheap — a handful of quadratic beziers per
+  /// particle, well within budget for the few particles drawn per frame.
+  void _drawStar(Canvas canvas, Offset center, double size, Paint paint) {
+    final r = size / 2;
+    final path = Path()
+      ..moveTo(center.dx, center.dy - r)
+      ..quadraticBezierTo(
+          center.dx + r * 0.18, center.dy - r * 0.18, center.dx + r, center.dy)
+      ..quadraticBezierTo(
+          center.dx + r * 0.18, center.dy + r * 0.18, center.dx, center.dy + r)
+      ..quadraticBezierTo(
+          center.dx - r * 0.18, center.dy + r * 0.18, center.dx - r, center.dy)
+      ..quadraticBezierTo(
+          center.dx - r * 0.18, center.dy - r * 0.18, center.dx, center.dy - r)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ParticlePainter oldDelegate) =>
+      oldDelegate.t != t;
+}
+
 class _QuickScheduleCard extends ConsumerWidget {
   const _QuickScheduleCard();
 
@@ -1344,91 +1439,120 @@ class _QuickScheduleCard extends ConsumerWidget {
 
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: 20.w),
-      child: Container(
-        padding: EdgeInsets.all(18.r),
-        decoration: BoxDecoration(
-          gradient: AppColors.signInSheetGradient,
-          borderRadius: BorderRadius.circular(AppRadius.xxl.r),
-          border: Border.all(
-              color: AppColors.white.withValues(alpha: 0.8), width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.10),
-              blurRadius: 28,
-              offset: const Offset(0, 10),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.xxl.r),
+        child: Container(
+          decoration: BoxDecoration(
+            // Solid purple, gradually fading top-left → bottom-right —
+            // no white/glass base anymore.
+            gradient: AppColors.primaryGradient,
+            borderRadius: BorderRadius.circular(AppRadius.xxl.r),
+            border: Border.all(
+              color: AppColors.white.withValues(alpha: 0.14),
+              width: 1,
             ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(
-                  'Book in under a minute',
-                  style: AppTypography.titleMedium.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.lightTextPrimary,
-                  ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.22),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Stack(
+            children: [
+              // Animated water drops (falling top→bottom, looping) + softly
+              // bobbing sparkles spread across the whole card. Content
+              // painted after this in the Stack naturally occludes whatever
+              // it overlaps.
+              const Positioned.fill(child: _ParticleField()),
+              Padding(
+                padding: EdgeInsets.all(18.r),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Book in under a minute',
+                          style: AppTypography.titleMedium.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.white,
+                          ),
+                        ),
+                        Gap(4.w),
+                        Icon(Icons.auto_awesome_rounded,
+                            size: 16.r, color: AppColors.white),
+                      ],
+                    ),
+                    const Gap(16),
+                    Container(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 4.w, vertical: 4.h),
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(AppRadius.xl.r),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.black.withValues(alpha: 0.08),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _QuickScheduleItem(
+                              icon: AppIcons.laundry,
+                              imagePath: 'assets/icons/lndry_service.png',
+                              label: 'Service',
+                              value: 'Wash & Fold',
+                              onTap: () => StatefulNavigationShell.of(context)
+                                  .goBranch(1),
+                            ),
+                          ),
+                          Container(
+                              width: 1,
+                              height: 36.h,
+                              color: AppColors.outlineVariant),
+                          Expanded(
+                            child: _QuickScheduleItem(
+                              icon: AppIcons.timer,
+                              imagePath: 'assets/icons/lndry_time.png',
+                              label: 'Pickup time',
+                              value: 'Today, 6–8 PM',
+                              onTap: () => StatefulNavigationShell.of(context)
+                                  .goBranch(1),
+                            ),
+                          ),
+                          Container(
+                              width: 1,
+                              height: 36.h,
+                              color: AppColors.outlineVariant),
+                          Expanded(
+                            child: _QuickScheduleItem(
+                              icon: AppIcons.location,
+                              imagePath: 'assets/icons/lndry_map.png',
+                              label: 'Address',
+                              value: addressLabel,
+                              onTap: () => context.push(AppRoutes.mapAddress),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Gap(16),
+                    _GlossyGradientButton(
+                      label: 'Schedule pickup',
+                      onTap: () =>
+                          StatefulNavigationShell.of(context).goBranch(1),
+                    ),
+                  ],
                 ),
-                Gap(4.w),
-                Icon(Icons.auto_awesome_rounded,
-                    size: 16.r, color: AppColors.primary),
-              ],
-            ),
-            const Gap(16),
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 4.h),
-              decoration: BoxDecoration(
-                color: AppColors.white.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(AppRadius.xl.r),
-                border:
-                    Border.all(color: AppColors.white.withValues(alpha: 0.85)),
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _QuickScheduleItem(
-                      icon: AppIcons.laundry,
-                      tone: Premium3DIconTone.purple,
-                      label: 'Service',
-                      value: 'Wash & Fold',
-                      onTap: () =>
-                          StatefulNavigationShell.of(context).goBranch(1),
-                    ),
-                  ),
-                  Container(
-                      width: 1, height: 36.h, color: AppColors.outlineVariant),
-                  Expanded(
-                    child: _QuickScheduleItem(
-                      icon: AppIcons.timer,
-                      tone: Premium3DIconTone.aqua,
-                      label: 'Pickup time',
-                      value: 'Today, 6–8 PM',
-                      onTap: () =>
-                          StatefulNavigationShell.of(context).goBranch(1),
-                    ),
-                  ),
-                  Container(
-                      width: 1, height: 36.h, color: AppColors.outlineVariant),
-                  Expanded(
-                    child: _QuickScheduleItem(
-                      icon: AppIcons.location,
-                      tone: Premium3DIconTone.purple,
-                      label: 'Address',
-                      value: addressLabel,
-                      onTap: () => context.push(AppRoutes.mapAddress),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Gap(16),
-            _GlossyGradientButton(
-              label: 'Schedule pickup',
-              onTap: () => StatefulNavigationShell.of(context).goBranch(1),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1438,17 +1562,20 @@ class _QuickScheduleCard extends ConsumerWidget {
 class _QuickScheduleItem extends StatelessWidget {
   const _QuickScheduleItem({
     required this.icon,
-    required this.tone,
     required this.label,
     required this.value,
     required this.onTap,
+    this.imagePath,
   });
 
   final IconData icon;
-  final Premium3DIconTone tone;
   final String label;
   final String value;
   final VoidCallback onTap;
+
+  /// Branded icon asset (assets/icons/) — takes priority over [icon]
+  /// when set.
+  final String? imagePath;
 
   @override
   Widget build(BuildContext context) {
@@ -1457,12 +1584,35 @@ class _QuickScheduleItem extends StatelessWidget {
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 8.h),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Premium3DIcon(icon: icon, tone: tone, size: 30, iconSize: 15),
+            // Pure white tile behind every icon — same treatment for all
+            // three (Service/Pickup time/Address) for a consistent,
+            // premium look, whether it's a branded PNG or the icon
+            // fallback.
+            Container(
+              width: 44.r,
+              height: 44.r,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(12.r),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.black.withValues(alpha: 0.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: imagePath != null
+                  ? Image.asset(imagePath!, width: 28.r, height: 28.r)
+                  : Icon(icon, size: 20.r, color: AppColors.primary),
+            ),
             const Gap(8),
             Text(
               label,
+              textAlign: TextAlign.center,
               style: AppTypography.caption.copyWith(
                 color: AppColors.lightTextSecondary,
                 fontSize: 10.sp,
@@ -1472,10 +1622,13 @@ class _QuickScheduleItem extends StatelessWidget {
             ),
             const Gap(1),
             Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Flexible(
                   child: Text(
                     value,
+                    textAlign: TextAlign.center,
                     style: AppTypography.labelSmall.copyWith(
                       color: AppColors.lightTextPrimary,
                       fontWeight: FontWeight.w600,
@@ -1484,6 +1637,7 @@ class _QuickScheduleItem extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                Gap(2.w),
                 Icon(
                   AppIcons.chevronDown,
                   size: 12.r,
@@ -1545,14 +1699,6 @@ class _GlossyGradientButtonState extends State<_GlossyGradientButton> {
               color: AppColors.white.withValues(alpha: 0.28),
               width: 1,
             ),
-            boxShadow: [
-              BoxShadow(
-                color:
-                    AppColors.primary.withValues(alpha: _pressed ? 0.18 : 0.28),
-                blurRadius: _pressed ? 10 : 18,
-                offset: Offset(0, _pressed ? 3 : 7),
-              ),
-            ],
           ),
           child: Stack(
             children: [
@@ -1608,6 +1754,131 @@ class _GlossyGradientButtonState extends State<_GlossyGradientButton> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Doorstep Pickup Promo Banner — real Flutter text + CTA laid over the
+// brand's van/laundry-bag artwork (assets/images/img/lndry_pickup_banner.png),
+// which already reserves open gradient space on its left for exactly this.
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _PickupBannerSection extends StatelessWidget {
+  const _PickupBannerSection({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 20.w),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.xxl.r),
+        child: SizedBox(
+          height: 150.h,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.asset(
+                'assets/images/img/lndry_pickup_banner.png',
+                fit: BoxFit.cover,
+                alignment: Alignment.centerRight,
+              ),
+              Positioned(
+                left: 20.w,
+                top: 0,
+                bottom: 0,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Doorstep Laundry\nPickup',
+                        style: AppTypography.titleMedium.copyWith(
+                          color: AppColors.white,
+                          fontWeight: FontWeight.w700,
+                          height: 1.2,
+                        ),
+                      ),
+                      Gap(6.h),
+                      Text(
+                        'Fresh. Clean. On Time.',
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.white.withValues(alpha: 0.9),
+                        ),
+                      ),
+                      Gap(12.h),
+                      _PickupBannerButton(onTap: onTap),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// White pill CTA that sits on top of colorful banner art — purple "Book
+/// now" label plus a small solid-purple circular arrow badge, the inverse
+/// of [_GlossyGradientButton]'s white-on-purple treatment.
+class _PickupBannerButton extends StatelessWidget {
+  const _PickupBannerButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.only(
+          left: 16.w,
+          right: 6.w,
+          top: 6.h,
+          bottom: 6.h,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(AppRadius.button.r),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.black.withValues(alpha: 0.15),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Book now',
+              style: AppTypography.labelMedium.copyWith(
+                color: AppColors.primaryDark,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            Gap(8.w),
+            Container(
+              width: 24.r,
+              height: 24.r,
+              decoration: const BoxDecoration(
+                color: AppColors.primary,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.arrow_forward_rounded,
+                size: 14.r,
+                color: AppColors.white,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1879,107 +2150,130 @@ class _ActiveOrderTrackerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isVendorApproved =
+        order.status != OrderStatus.waitingForVendorConfirmation &&
+            order.status != OrderStatus.paymentPending;
+    final serviceName = order.items.isNotEmpty
+        ? order.items.first.serviceName
+        : 'Laundry service';
+
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: AppColors.white,
         borderRadius: BorderRadius.circular(AppRadius.card.r),
-        boxShadow: AppElevation.low,
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            child: Container(
-              width: 5.w,
-              decoration: BoxDecoration(
-                color: AppColors.secondary,
-                borderRadius: BorderRadius.horizontal(
-                  left: Radius.circular(AppRadius.card.r),
-                ),
-              ),
-            ),
+        border: Border.all(color: AppColors.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.08),
+            blurRadius: 22,
+            offset: const Offset(0, 8),
           ),
-          Padding(
-            padding: EdgeInsets.all(16.r),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(16.r),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        'Order #${order.orderNumber.isNotEmpty ? order.orderNumber : order.id.toUpperCase()}',
-                        style: AppTypography.caption
-                            .copyWith(color: AppColors.textMuted),
+                Flexible(
+                  child: Text(
+                    'Order #${order.orderNumber.isNotEmpty ? order.orderNumber : order.id.toUpperCase()}',
+                    style: AppTypography.caption
+                        .copyWith(color: AppColors.textMuted),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => context.push('/orders/details/${order.id}'),
+                  child: Text(
+                    'Track',
+                    style: AppTypography.labelSmall.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const Gap(8),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        serviceName,
+                        style: AppTypography.titleMedium.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textBlack,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    GestureDetector(
-                      onTap: () => context.push('/orders/details/${order.id}'),
-                      child: Text(
-                        'Track',
-                        style: AppTypography.labelSmall.copyWith(
-                          color: AppColors.primary,
+                      Gap(4.h),
+                      Text(
+                        statusText,
+                        style: AppTypography.titleSmall.copyWith(
                           fontWeight: FontWeight.bold,
+                          color: AppColors.textBlack,
                         ),
                       ),
-                    ),
-                  ],
+                      Text(
+                        '${order.items.length} ${order.items.length == 1 ? 'item' : 'items'}',
+                        style: AppTypography.bodySmall
+                            .copyWith(color: AppColors.textSecondary),
+                      ),
+                    ],
+                  ),
                 ),
-                const Gap(8),
-                Row(
-                  children: [
-                    Container(
-                      padding: EdgeInsets.all(8.r),
-                      decoration: const BoxDecoration(
-                        color: AppColors.secondaryLight,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        AppIcons.laundry,
-                        color: AppColors.secondary,
-                        size: 20.r,
-                      ),
-                    ),
-                    const Gap(12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            statusText,
-                            style: AppTypography.titleSmall.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textBlack,
-                            ),
-                          ),
-                          Text(
-                            '${order.items.length} items · ${order.items.isNotEmpty ? order.items.first.serviceName : 'Laundry'}',
-                            style: AppTypography.bodySmall
-                                .copyWith(color: AppColors.textSecondary),
-                          ),
-                          Text(
-                            order.estimatedDeliveryAt?.toDayDate ??
-                                'Delivery estimate pending',
-                            style: AppTypography.labelSmall.copyWith(
-                              color: AppColors.success,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const Gap(20),
-                const AppDivider(),
-                const Gap(16),
-                _ActiveOrderTimelineRow(currentStep: currentStep),
+                Gap(8.w),
+                _VendorApprovalBadge(isApproved: isVendorApproved),
               ],
+            ),
+            const Gap(20),
+            const AppDivider(),
+            const Gap(16),
+            _ActiveOrderTimelineRow(currentStep: currentStep),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VendorApprovalBadge extends StatelessWidget {
+  const _VendorApprovalBadge({required this.isApproved});
+
+  final bool isApproved;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isApproved ? AppColors.secondary : AppColors.primary;
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 6.h),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppRadius.full.r),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7.r,
+            height: 7.r,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          Gap(4.w),
+          Text(
+            isApproved ? 'Approved' : 'Awaiting approval',
+            style: AppTypography.caption.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -1988,87 +2282,306 @@ class _ActiveOrderTrackerCard extends StatelessWidget {
   }
 }
 
-class _ActiveOrderTimelineRow extends StatelessWidget {
+const _kOrderTimelineSteps = [
+  (label: 'Pickup', asset: 'assets/icons/lndry_pickup.png'),
+  (label: 'Cleaning', asset: 'assets/icons/lndry_cleaning.png'),
+  (label: 'Quality check', asset: 'assets/icons/lndry_check.png'),
+  (label: 'Out for delivery', asset: 'assets/icons/lndry_deilvery.png'),
+];
+
+/// Icon columns are fixed-width and the connector segments between them
+/// are the only flexible (Expanded) pieces — that way the 3 gaps share the
+/// remaining width equally, instead of a per-step-Expanded layout where the
+/// last icon (with no trailing line to fill) is left stranded on the left
+/// of its own segment with dead space to its right.
+///
+/// Two looping animations, both driven off one shared [AnimationController]
+/// (repeat, 1.8s): a traveling glow along the dotted connector that leads
+/// into the current step (the segment "in progress" right now), and a
+/// rotating light ring around the current step's own icon circle — a
+/// premium "actively working on this" indicator.
+class _ActiveOrderTimelineRow extends StatefulWidget {
   const _ActiveOrderTimelineRow({required this.currentStep});
   final int currentStep;
 
   @override
-  Widget build(BuildContext context) {
-    const List<String> steps = [
-      'Picked up',
-      'Cleaning',
-      'Quality check',
-      'Out for delivery',
-    ];
+  State<_ActiveOrderTimelineRow> createState() =>
+      _ActiveOrderTimelineRowState();
+}
 
-    return Row(
-      children: List.generate(
-        steps.length,
-        (index) {
-          final isCompleted = index <= currentStep;
-          final isCurrent = index == currentStep;
-          final showLine = index < steps.length - 1;
+class _ActiveOrderTimelineRowState extends State<_ActiveOrderTimelineRow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1800),
+  )..repeat();
 
-          return Expanded(
-            child: Column(
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  static const _iconColumnWidth = 64.0;
+
+  Widget _iconColumn(int index) {
+    final steps = _kOrderTimelineSteps;
+    final isCompleted = index <= widget.currentStep;
+    final isCurrent = index == widget.currentStep;
+
+    return SizedBox(
+      width: _iconColumnWidth.r,
+      child: Column(
+        children: [
+          AnimatedScale(
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOutBack,
+            scale: isCurrent ? 1.06 : 1.0,
+            child: Stack(
+              clipBehavior: Clip.none,
               children: [
-                Row(
-                  children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 250),
-                      width: isCurrent ? 16.r : 14.r,
-                      height: isCurrent ? 16.r : 14.r,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: isCompleted
-                            ? AppColors.secondary
-                            : AppColors.outlineVariant,
-                      ),
-                      child: isCompleted && index == 0
-                          ? Center(
-                              child: Icon(
-                                AppIcons.done,
-                                color: AppColors.white,
-                                size: 8.r,
-                              ),
-                            )
-                          : null,
-                    ),
-                    if (showLine)
-                      Expanded(
-                        child: Container(
-                          height: 2.h,
-                          color: isCompleted
-                              ? AppColors.secondary
-                              : AppColors.outlineVariant,
+                // Rotating glow ring — only for the step actively in
+                // progress right now. Sits just outside the icon circle.
+                if (isCurrent)
+                  Positioned(
+                    left: -6.r,
+                    top: -6.r,
+                    right: -6.r,
+                    bottom: -6.r,
+                    child: RepaintBoundary(
+                      child: AnimatedBuilder(
+                        animation: _controller,
+                        builder: (context, _) => CustomPaint(
+                          painter: _RingGlowPainter(_controller.value),
                         ),
                       ),
-                  ],
-                ),
-                const Gap(6),
-                Padding(
-                  padding: EdgeInsets.only(right: 8.w),
-                  child: Text(
-                    steps[index],
-                    style: AppTypography.caption.copyWith(
-                      fontSize: 8.sp,
-                      fontWeight:
-                          isCurrent ? FontWeight.bold : FontWeight.normal,
-                      color: isCompleted
-                          ? AppColors.secondary
-                          : AppColors.textMuted,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  ),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 350),
+                  curve: Curves.easeOutCubic,
+                  width: 56.r,
+                  height: 56.r,
+                  padding: EdgeInsets.all(10.r),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isCompleted
+                        ? AppColors.white
+                        : AppColors.surfaceContainer,
+                    boxShadow: isCompleted
+                        ? [
+                            BoxShadow(
+                              color: AppColors.primary.withValues(alpha: 0.18),
+                              blurRadius: 14,
+                              offset: const Offset(0, 6),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 350),
+                    opacity: isCompleted ? 1.0 : 0.45,
+                    child: Image.asset(
+                      steps[index].asset,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+                // Numbered badge overlapping the circle's edge — matches
+                // the reference's step-number treatment.
+                Positioned(
+                  bottom: -2.r,
+                  right: -2.r,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 350),
+                    width: 20.r,
+                    height: 20.r,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isCompleted
+                          ? AppColors.primary
+                          : AppColors.outlineVariant,
+                      border: Border.all(color: AppColors.white, width: 2),
+                    ),
+                    child: Text(
+                      '${index + 1}',
+                      style: AppTypography.caption.copyWith(
+                        fontSize: 9.5.sp,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.white,
+                        height: 1,
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
-          );
-        },
+          ),
+          const Gap(8),
+          Text(
+            steps[index].label,
+            style: AppTypography.caption.copyWith(
+              fontSize: 9.5.sp,
+              fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w600,
+              color:
+                  isCompleted ? AppColors.primaryDark : AppColors.textMuted,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ),
     );
   }
+
+  Widget _connector(int index) {
+    final isDone = index < widget.currentStep;
+    // The one segment "in progress" right now — leading into the current
+    // step — gets the traveling light. Fully-done segments behind it and
+    // not-yet-reached segments ahead of it stay static.
+    final isActive = index == widget.currentStep - 1;
+
+    return Expanded(
+      child: Padding(
+        // Vertically centers the dotted line on the 56.r icon circle
+        // above it (28.r half-height, minus half the line's own height).
+        padding: EdgeInsets.only(top: 26.r),
+        child: SizedBox(
+          height: 8.r,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final dotCount =
+                  (constraints.maxWidth / 10.w).floor().clamp(3, 10);
+
+              if (!isActive) {
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: List.generate(
+                    dotCount,
+                    (_) => Container(
+                      width: 4.r,
+                      height: 4.r,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isDone
+                            ? AppColors.primary
+                            : AppColors.outlineVariant,
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              return RepaintBoundary(
+                child: AnimatedBuilder(
+                  animation: _controller,
+                  builder: (context, _) {
+                    final lightPos = _controller.value;
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: List.generate(dotCount, (i) {
+                        final p =
+                            dotCount > 1 ? i / (dotCount - 1) : 0.0;
+                        final glow = (1 - ((p - lightPos).abs() / 0.22))
+                            .clamp(0.0, 1.0);
+                        final size = 4.r + (4.r * glow);
+                        final color = Color.lerp(
+                          AppColors.primary,
+                          AppColors.aqua,
+                          glow,
+                        )!;
+                        return Container(
+                          width: size,
+                          height: size,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: color,
+                            boxShadow: glow > 0.35
+                                ? [
+                                    BoxShadow(
+                                      color: AppColors.aqua
+                                          .withValues(alpha: glow * 0.6),
+                                      blurRadius: 6 * glow,
+                                      spreadRadius: 1 * glow,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                        );
+                      }),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = _kOrderTimelineSteps;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var index = 0; index < steps.length; index++) ...[
+          _iconColumn(index),
+          if (index < steps.length - 1) _connector(index),
+        ],
+      ],
+    );
+  }
+}
+
+/// Faint full-circle track plus a bright gradient-fading arc that rotates
+/// continuously around it — a premium "actively processing" spinner ring
+/// drawn just outside a step icon's circle.
+class _RingGlowPainter extends CustomPainter {
+  _RingGlowPainter(this.t);
+  final double t;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.width / 2 - 2;
+
+    final trackPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..color = AppColors.primary.withValues(alpha: 0.15);
+    canvas.drawCircle(center, radius, trackPaint);
+
+    final baseAngle = t * 2 * math.pi;
+    const sweep = 1.1;
+    final glowPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round
+      ..shader = SweepGradient(
+        startAngle: 0,
+        endAngle: sweep,
+        transform: GradientRotation(baseAngle - sweep),
+        colors: [
+          AppColors.primary.withValues(alpha: 0.0),
+          AppColors.aqua,
+        ],
+      ).createShader(Rect.fromCircle(center: center, radius: radius));
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      baseAngle - sweep,
+      sweep,
+      false,
+      glowPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _RingGlowPainter oldDelegate) =>
+      oldDelegate.t != t;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -2095,7 +2608,7 @@ class _HorizontalVendorCard extends StatelessWidget {
               left: Radius.circular(AppRadius.card.r),
             ),
             child: Container(
-              width: 115.w,
+              width: 140.w,
               height: double.infinity,
               color: AppColors.shimmerBase,
               child: Hero(
@@ -2222,13 +2735,13 @@ class _HorizontalVendorCard extends StatelessWidget {
                         const SizedBox.shrink(),
                       Container(
                         padding: EdgeInsets.all(6.r),
-                        decoration: const BoxDecoration(
-                          color: AppColors.primaryContainer,
+                        decoration: BoxDecoration(
+                          color: AppColors.black.withValues(alpha: 0.06),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           AppIcons.forward,
-                          color: AppColors.primary,
+                          color: AppColors.black,
                           size: 12.r,
                         ),
                       ),

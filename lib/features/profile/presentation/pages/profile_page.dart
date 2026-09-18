@@ -8,7 +8,15 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../../config/env.dart';
 
+/// Watches [authProvider] (not just read once) so switching accounts on the
+/// same running app — logout, then sign in as someone else — refetches
+/// fresh stats instead of serving the previous account's cached totals.
+/// A bare FutureProvider with no auth dependency here was the actual bug:
+/// it computed once and cached forever, regardless of who was signed in.
 final _profileStatsProvider = FutureProvider<UserStats>((ref) async {
+  if (ref.watch(authProvider) is! AuthAuthenticated) {
+    return const UserStats(totalOrders: 0, totalSpent: 0, loyaltyPoints: 0);
+  }
   return ref.watch(customerRepositoryProvider).getUserStats();
 });
 

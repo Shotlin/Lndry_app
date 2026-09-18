@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +10,7 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_colors.dart';
 import 'core/theme/tokens/breakpoints.dart';
+import 'core/services/referral_attribution_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/widgets/order_sync_listener.dart';
 import 'providers/theme_provider.dart';
@@ -16,7 +18,21 @@ import 'providers/theme_provider.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Portrait-only, regardless of the device's own rotation-lock setting —
+  // matches the native Android/iOS orientation locks set on the platform
+  // side (AndroidManifest.xml / Info.plist); this is a defensive third
+  // layer in case a screen ever slips past those.
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
+
   final prefs = await SharedPreferences.getInstance();
+  final storageService = StorageService(prefs: prefs);
+
+  // One-time check (no-op on every launch after the first) for a referral
+  // code carried through a Play Store install link, so a friend who taps a
+  // shared link never has to type a code by hand at signup.
+  await ReferralAttributionService.captureOnce(storageService);
 
   // Firebase initialisation is best-effort; the app runs without it in
   // offline/mock mode (FCM, auth still wired when backend is delivered).
@@ -30,7 +46,7 @@ void main() async {
     ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
-        storageServiceProvider.overrideWithValue(StorageService(prefs: prefs)),
+        storageServiceProvider.overrideWithValue(storageService),
       ],
       child: const LndryApp(),
     ),

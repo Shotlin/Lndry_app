@@ -1,7 +1,6 @@
 import '../design/design_system.dart';
 import '../../features/cart/presentation/providers/cart_providers.dart';
 import '../../repositories/abstract/customer_repository.dart';
-import '../../shared/widgets/premium_3d_icon.dart';
 
 /// Floating "milestone perks" card shown above the bottom nav pill once the
 /// customer has added something to their cart — mirrors the tiered
@@ -47,14 +46,17 @@ class _MilestoneCardContent extends StatelessWidget {
   final List<CartMilestoneTier> tiers;
   final String? vendorId;
 
-  static IconData _iconFor(String rewardType) {
+  /// Branded 3D icon assets (assets/icons/) — already glossy/illustrated in
+  /// their own right, so _TierColumn renders these directly rather than
+  /// wrapping them in Premium3DIcon's gradient chip (which is for flat
+  /// Material glyphs, not pre-rendered art).
+  static String _imageFor(String rewardType) {
     switch (rewardType) {
-      case 'FLAT_DISCOUNT':
-        return Icons.local_offer_rounded;
       case 'COUPON_UNLOCK':
-        return Icons.confirmation_number_rounded;
+        return 'assets/icons/lndry_cupon.png';
+      case 'FLAT_DISCOUNT':
       default:
-        return Icons.card_giftcard_rounded;
+        return 'assets/icons/lndry_gift_box.png';
     }
   }
 
@@ -117,7 +119,7 @@ class _MilestoneCardContent extends StatelessWidget {
                 Expanded(
                   child: _TierColumn(
                     achieved: subtotal >= tier.minOrderAmount,
-                    icon: _iconFor(tier.rewardType),
+                    imagePath: _imageFor(tier.rewardType),
                     amountLabel: '₹${tier.minOrderAmount.toStringAsFixed(0)}',
                     name: tier.name,
                   ),
@@ -144,9 +146,11 @@ class _MilestoneCardContent extends StatelessWidget {
     );
   }
 
-  /// Prefers the admin-authored `messageBefore` (with its `{amount}`
-  /// placeholder substituted and highlighted) over a generated fallback, so
-  /// admins can customize the copy per milestone without a client release.
+  /// Prefers the admin-authored `messageBefore` over a generated fallback,
+  /// so admins can customize the copy per milestone without a client
+  /// release. The dashboard's editor documents two placeholders —
+  /// `{amount}` and `{name}` (see CartMilestoneDialog.tsx) — substituted
+  /// here; `{amount}` is highlighted, `{name}` is plain inline text.
   static TextSpan _nextTierMessage(CartMilestoneTier tier, double remaining) {
     final baseStyle =
         AppTypography.bodySmall.copyWith(color: AppColors.textSecondary);
@@ -156,7 +160,7 @@ class _MilestoneCardContent extends StatelessWidget {
     );
     final amountText = '₹${remaining.toStringAsFixed(0)}';
 
-    final template = tier.messageBefore;
+    final template = tier.messageBefore?.replaceAll('{name}', tier.name);
     if (template != null && template.contains('{amount}')) {
       final parts = template.split('{amount}');
       return TextSpan(
@@ -183,13 +187,13 @@ class _MilestoneCardContent extends StatelessWidget {
 class _TierColumn extends StatelessWidget {
   const _TierColumn({
     required this.achieved,
-    required this.icon,
+    required this.imagePath,
     required this.amountLabel,
     required this.name,
   });
 
   final bool achieved;
-  final IconData icon;
+  final String imagePath;
   final String amountLabel;
   final String name;
 
@@ -203,12 +207,7 @@ class _TierColumn extends StatelessWidget {
           children: [
             Opacity(
               opacity: achieved ? 1.0 : 0.45,
-              child: Premium3DIcon(
-                icon: icon,
-                tone: Premium3DIconTone.purple,
-                size: 44,
-                iconSize: 20,
-              ),
+              child: Image.asset(imagePath, width: 44.r, height: 44.r),
             ),
             if (achieved)
               Positioned(

@@ -75,56 +75,22 @@ class _SavedAddressesPageState extends ConsumerState<SavedAddressesPage> {
     }
   }
 
+  /// Full address editor (map skipped, form prefilled) — replaces the old
+  /// minimal Address-Line-1/City-only bottom sheet, which never exposed
+  /// flat number, pincode, landmark, state, or the Home/Work/Other type.
   Future<void> _onEditAddress(AddressModel address) async {
-    final line1Controller = TextEditingController(text: address.line1);
-    final cityController = TextEditingController(text: address.city);
-
-    await AppBottomSheet.show<void>(
-      context: context,
-      title: 'Edit Address',
-      isScrollControlled: true,
-      primaryActionLabel: 'Save',
-      onPrimaryAction: () async {
-        final newLine1 = line1Controller.text.trim();
-        final newCity = cityController.text.trim();
-
-        if (newLine1.isEmpty || newCity.isEmpty) return;
-
-        Navigator.of(context).pop();
-
-        setState(() => _isLoading = true);
-        final repo = ref.read(customerRepositoryProvider);
-        try {
-          await repo.updateAddress(
-            address.copyWith(line1: newLine1, city: newCity),
-          );
-          await _loadAddresses();
-        } catch (_) {
-          if (mounted) setState(() => _isLoading = false);
-        }
-      },
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AppTextField(
-            label: 'Address Line 1',
-            hint: 'Flat / building / street',
-            controller: line1Controller,
-            textCapitalization: TextCapitalization.words,
-          ),
-          Gap(16.h),
-          AppTextField(
-            label: 'City',
-            hint: 'City',
-            controller: cityController,
-            textCapitalization: TextCapitalization.words,
-          ),
-        ],
+    final result = await context.push<AddressModel>(
+      AppRoutes.mapAddress,
+      extra: (
+        existingAddress: address,
+        isEditingExisting: true,
+        requireFlatNumber: false,
+        prefilledLocation: null,
       ),
     );
-
-    line1Controller.dispose();
-    cityController.dispose();
+    if (result != null) {
+      await _loadAddresses();
+    }
   }
 
   @override
@@ -251,6 +217,20 @@ class _SavedAddressesPageState extends ConsumerState<SavedAddressesPage> {
                                       tooltip: 'Set as default',
                                       onPressed: () => _onSetDefault(addr),
                                     ),
+
+                                  // Explicit edit affordance — previously
+                                  // editing was only reachable by tapping
+                                  // the card body itself, with no visible
+                                  // icon hinting that was possible.
+                                  IconButton(
+                                    icon: Icon(
+                                      Icons.edit_outlined,
+                                      color: AppColors.textSecondary,
+                                      size: 22.r,
+                                    ),
+                                    tooltip: 'Edit address',
+                                    onPressed: () => _onEditAddress(addr),
+                                  ),
 
                                   // FIX 3 & 4: Delete button
                                   IconButton(

@@ -108,4 +108,13 @@ abstract final class Env {
   // ── App Info ──────────────────────────────────────────────────────────────
   static AppFlavor get flavor => _flavor;
   static String get flavorLabel => _flavor.label;
+
+  // ── Play Store ────────────────────────────────────────────────────────────
+  /// Matches `applicationId` in android/app/build.gradle.kts. A referral
+  /// share link appends `&referrer=<code>` — Play Store carries that value
+  /// through install so the app can read it back via the Play Install
+  /// Referrer API on first launch (see ReferralAttributionService).
+  static const String androidPackageName = 'com.lndry.app';
+  static String get playStoreUrl =>
+      'https://play.google.com/store/apps/details?id=$androidPackageName';
 }

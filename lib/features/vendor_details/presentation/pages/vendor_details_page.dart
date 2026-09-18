@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../../../core/auth/auth_gate.dart';
 import '../../../../core/design/design_system.dart';
 import '../../../../core/extensions/extensions.dart';
+import '../../../../core/utils/date_utils.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../../../features/home/presentation/providers/home_providers.dart';
 import '../../../../models/models.dart';
@@ -137,7 +138,10 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
                       const Gap(12),
                       ElevatedButton(
                         onPressed: () async {
-                          Navigator.of(context).pop();
+                          // AppBottomSheet.show uses useRootNavigator:
+                          // true; must pop the same navigator explicitly
+                          // (see order_revision_sheet.dart).
+                          Navigator.of(context, rootNavigator: true).pop();
                           await _loadPickupSlots();
                           if (mounted) _showPickupSlotSheet();
                         },
@@ -194,7 +198,7 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
 
   String _slotLabel(PickupSlot slot) {
     final part = slot.label != null ? '${slot.label} • ' : '';
-    return '$part${slot.startTime}–${slot.endTime}';
+    return '$part${AppDateUtils.formatTimeRange(slot.startTime, slot.endTime)}';
   }
 
   String _deliveryEstimate() {

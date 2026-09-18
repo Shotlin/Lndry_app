@@ -12,6 +12,7 @@ import '../../../../repositories/repositories.dart';
 import '../../../../shared/widgets/shared_widgets.dart';
 import '../widgets/balance_payment_card.dart';
 import '../widgets/order_revision_sheet.dart';
+import '../widgets/payment_status_card.dart';
 
 /// A continuous-unit item's (kg/sq ft) real decimal quantity can't live in
 /// the INTEGER order_lines.quantity column once a rider/vendor correction
@@ -245,7 +246,11 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
       primaryActionLabel: 'Confirm Cancellation',
       onPrimaryAction: () {
         if (selectedReason != null && selectedReason!.isNotEmpty) {
-          Navigator.of(context).pop(selectedReason);
+          // See order_revision_sheet.dart for why this must target the
+          // root navigator explicitly — this page is a nested route
+          // inside the Orders tab's own Navigator, not the one
+          // AppBottomSheet.show (useRootNavigator: true) actually used.
+          Navigator.of(context, rootNavigator: true).pop(selectedReason);
         }
       },
       child: StatefulBuilder(
@@ -352,7 +357,8 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
       context: context,
       title: 'Review Order',
       primaryActionLabel: 'Submit Review',
-      onPrimaryAction: () => Navigator.of(context).pop(true),
+      onPrimaryAction: () =>
+          Navigator.of(context, rootNavigator: true).pop(true),
       isScrollControlled: true,
       child: StatefulBuilder(
         builder: (context, setModalState) => Column(
@@ -691,13 +697,13 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                                       .copyWith(fontWeight: FontWeight.bold)),
                               if (order.scheduledPickupAt != null)
                                 Text(
-                                  'Pickup: ${order.scheduledPickupAt!.toDayDate}',
+                                  'Pickup: ${order.pickupSummary}',
                                   style: AppTypography.bodySmall
                                       .copyWith(color: AppColors.textSecondary),
                                 ),
                               if (order.estimatedDeliveryAt != null)
                                 Text(
-                                  'Delivery: ${order.estimatedDeliveryAt!.toDayDate}',
+                                  'Delivery: ${order.estimatedDeliveryAt!.toDateTimeString}',
                                   style: AppTypography.bodySmall
                                       .copyWith(color: AppColors.textSecondary),
                                 ),
@@ -710,34 +716,8 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                   Gap(AppSpacing.md.h),
                 ],
 
-                // ── Payment method ─────────────────────────────────────────
-                AppCard.outlined(
-                  backgroundColor: isDark
-                      ? AppColors.darkSurfaceContainer
-                      : AppColors.surface,
-                  child: Row(
-                    children: [
-                      Icon(AppIcons.payment,
-                          color: AppColors.primary, size: 20.r),
-                      Gap(AppSpacing.cardGap.h),
-                      Text(
-                        'Payment: ${order.paymentMethod.label}',
-                        style: AppTypography.labelMedium,
-                      ),
-                      const Spacer(),
-                      if (order.isPaid)
-                        const StatusBadge(
-                          label: 'Paid',
-                          color: AppColors.success,
-                        )
-                      else
-                        const StatusBadge(
-                          label: 'Unpaid',
-                          color: AppColors.warning,
-                        ),
-                    ],
-                  ),
-                ),
+                // ── Payment status ──────────────────────────────────────────
+                PaymentStatusCard(order: order),
                 Gap(AppSpacing.md.h),
 
                 // ── Balance due (payable once the final evaluation is done) ──

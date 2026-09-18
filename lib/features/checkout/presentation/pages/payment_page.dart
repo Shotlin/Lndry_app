@@ -1,6 +1,7 @@
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 
 import '../../../../config/env.dart';
+import '../../../../core/constants/asset_constants.dart';
 import '../../../../core/design/design_system.dart';
 import '../../../../core/extensions/extensions.dart';
 import '../../../../core/widgets/widgets.dart';
@@ -9,7 +10,9 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../cart/presentation/providers/cart_providers.dart';
 import '../../../checkout/presentation/pages/checkout_page.dart';
+import '../../../checkout/presentation/widgets/checkout_brand_header.dart';
 import '../../../home/presentation/providers/home_providers.dart';
+import '../../../wallet/presentation/providers/wallet_providers.dart';
 import '../controllers/razorpay_payment_controller.dart';
 
 /// Display-only fallback for the "Pay Now (Advance)" figure while the real
@@ -34,8 +37,9 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
   bool _isLoadingPaymentOrder = true;
   // Governs only how the BALANCE is settled at delivery — every order pays
   // the same fixed advance online here first, since there's no one present
-  // to hand cash to at checkout time. 'upi'/'card'/'wallet' all mean the
-  // balance is also settled online; 'cod' means cash to the rider.
+  // to hand cash to at checkout time. Cash on Delivery was removed as an
+  // option (business decision) — the balance is now always settled online
+  // too, so this only tracks which online method the customer prefers.
   String _selectedMethod = 'upi';
   PaymentOrderResult? _pendingPaymentOrder;
   CheckoutSession? _pendingSession;
@@ -189,6 +193,60 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
         setState(() => _isProcessing = false);
         AppSnackBar.showError(context, 'Transaction failed: ${e.toString()}');
       }
+    }
+  }
+
+  /// Pays the advance directly from LNDRY wallet balance — skips Razorpay
+  /// entirely. The backend marks the payments row PAID in the same step
+  /// (no separate verify call needed), so this goes straight to placing
+  /// the order, mirroring what `_verifyAndPlaceOrder` does after a Razorpay
+  /// verification succeeds.
+  Future<void> _payWithWallet() async {
+    if (_isProcessing || _isVerifyingPayment || _paymentFinalized) return;
+
+    final session = _pendingSession;
+    if (session?.orderDraftId == null || session!.orderDraftId!.isEmpty) {
+      AppSnackBar.showError(
+        context,
+        'Checkout quote is unavailable. Please retry checkout.',
+      );
+      return;
+    }
+
+    setState(() {
+      _isProcessing = true;
+      _isVerifyingPayment = true;
+    });
+
+    try {
+      final result = await ref.read(customerRepositoryProvider).payWithWallet(
+            orderDraftId: session.orderDraftId,
+          );
+
+      if (!result.success) {
+        if (!mounted) return;
+        setState(() {
+          _isProcessing = false;
+          _isVerifyingPayment = false;
+        });
+        AppSnackBar.showError(
+          context,
+          result.message ?? 'Wallet payment failed.',
+        );
+        return;
+      }
+
+      _paymentFinalized = true;
+      ref.invalidate(walletProvider);
+      ref.invalidate(walletTransactionsProvider);
+      await _placeOrderAfterVerifiedPayment(session: session, cart: null);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
+        _isVerifyingPayment = false;
+      });
+      AppSnackBar.showError(context, 'Wallet payment failed: ${e.toString()}');
     }
   }
 
@@ -349,7 +407,6 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
     if (session?.orderDraftId != null) {
       placeRequest = PlaceOrderRequest(
         orderDraftId: session!.orderDraftId,
-        draftPaymentMethod: _selectedMethod == 'cod' ? 'COD' : null,
       );
     } else {
       final addressId = session?.deliveryAddressId;
@@ -414,7 +471,8 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
         'upi' => PaymentMethod.upi,
         'card' => PaymentMethod.card,
         'wallet' => PaymentMethod.wallet,
-        _ => PaymentMethod.upi,
+        'lndry_wallet' => PaymentMethod.lndryWallet,
+        _ => PaymentMethod.online,
       };
 
   @override
@@ -426,36 +484,32 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
     final estimatedTotal = session?.finalPrice ?? cartState.total;
     final advanceDue = _pendingPaymentOrder?.amount ?? _fallbackAdvanceDisplay;
     final balanceDue = (estimatedTotal - advanceDue).clamp(0, double.infinity);
+    final walletAsync = ref.watch(walletProvider);
+    final walletBalance = walletAsync.value?.balance;
+    final isWalletSelected = _selectedMethod == 'lndry_wallet';
+    final walletInsufficient =
+        isWalletSelected && walletBalance != null && walletBalance < advanceDue;
+
     final paymentCtaLabel = _verificationRetryPending
         ? 'Verify Payment'
         : _isLoadingPaymentOrder
-            ? 'Preparing payment...'
-            : 'Pay ${advanceDue.toCurrencyDecimal} Advance';
+            ? 'Preparing...'
+            : isWalletSelected
+                ? (walletInsufficient
+                    ? 'Insufficient Wallet Balance'
+                    : 'Pay ${advanceDue.toCurrencyDecimal} with Wallet')
+                : 'Pay ${advanceDue.toCurrencyDecimal} Now';
+    final isCtaBusy = _isLoadingPaymentOrder && !_verificationRetryPending;
 
     return Scaffold(
-      backgroundColor: isDark ? AppColors.darkBackground : AppColors.background,
-      appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.payment_rounded, color: AppColors.primary, size: 24.r),
-            const Gap(8),
-            Text(
-              'Razorpay Secures',
-              style: AppTypography.titleLarge.copyWith(
-                  color: AppColors.primary, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        centerTitle: true,
-        backgroundColor: isDark ? AppColors.darkSurface : AppColors.surface,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(AppIcons.back),
-          onPressed: () => context.pop(),
-        ),
+      backgroundColor: isDark ? AppColors.darkBackground : Colors.white,
+      appBar: CheckoutBrandHeader(
+        isDark: isDark,
+        onBack: () => context.pop(),
+        subtitle: 'Secure payment powered by Razorpay',
       ),
       body: SafeArea(
+        top: false,
         child: _isProcessing
             ? const AppLoadingPage(
                 message: 'Securing transaction with Razorpay...')
@@ -468,149 +522,238 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
                     actionLabel: 'Browse vendors',
                     onAction: () => context.go(AppRoutes.vendorListing),
                   )
-                : Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: AppSpacing.pagePaddingH.w,
-                      vertical: AppSpacing.pagePaddingV.h * 1.5,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Estimated total / advance / balance breakdown —
-                        // only a small fixed advance is charged now, with
-                        // the rest settled at delivery once the vendor has
-                        // actually weighed/recounted the items.
-                        AppCard.outlined(
-                          backgroundColor: isDark
-                              ? AppColors.darkSurfaceContainer
-                              : AppColors.surface,
+                : Column(
+                    children: [
+                      _CheckoutStepper(isDark: isDark),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: EdgeInsets.fromLTRB(
+                            AppSpacing.pagePaddingH.w,
+                            AppSpacing.md.h,
+                            AppSpacing.pagePaddingH.w,
+                            AppSpacing.md.h,
+                          ),
                           child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              _AmountRow(
-                                label: 'Estimated Total',
-                                amount: estimatedTotal,
+                              // Payment Summary card — the towel/"Fresh Looks
+                              // Better" art anchors the header the way the
+                              // approved reference design does.
+                              _PaymentSummaryCard(
+                                isDark: isDark,
+                                estimatedTotal: estimatedTotal,
+                                advanceDue: advanceDue,
+                                balanceDue: balanceDue.toDouble(),
                               ),
-                              const Gap(10),
-                              _AmountRow(
-                                label: 'Pay Now (Advance)',
-                                amount: advanceDue,
-                                isBold: true,
-                                color: AppColors.primary,
+                              const Gap(14),
+
+                              // Shirt + checkmark art pairs with the plain-
+                              // English explanation of what the advance buys.
+                              _ConfirmPickupBanner(
+                                isDark: isDark,
+                                advanceDue: advanceDue,
                               ),
-                              const Gap(10),
-                              const Divider(),
+                              const Gap(12),
+
+                              // Refund guarantee — the advance is charged
+                              // before the slot is actually confirmed, so
+                              // this explicitly promises a refund if that
+                              // confirmation never comes.
+                              _RefundGuaranteeBanner(
+                                isDark: isDark,
+                                advanceDue: advanceDue,
+                              ),
+                              const Gap(28),
+
+                              Row(
+                                children: [
+                                  Text(
+                                    'Select Payment Method',
+                                    style: AppTypography.titleMedium.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      color: isDark
+                                          ? AppColors.darkTextPrimary
+                                          : AppColors.lightTextPrimary,
+                                    ),
+                                  ),
+                                  const Gap(8),
+                                  const _RecommendedPill(),
+                                ],
+                              ),
                               const Gap(4),
-                              _AmountRow(
-                                label: 'Balance at Delivery',
-                                amount: balanceDue.toDouble(),
-                                color: AppColors.onSurfaceVariant,
+                              Text(
+                                'How you\'d like to pay — both the advance now and the balance at delivery.',
+                                style: AppTypography.caption
+                                    .copyWith(color: AppColors.onSurfaceVariant),
                               ),
+                              const Gap(16),
+
+                              // Payment options list
+                              _PaymentMethodTile(
+                                label: 'UPI (GPay / PhonePe / Paytm)',
+                                subtitle: 'Fast, secure and easy',
+                                icon: Icons.qr_code_rounded,
+                                iconBackground: AppColors.secondaryLight,
+                                iconColor: AppColors.secondaryDark,
+                                isSelected: _selectedMethod == 'upi',
+                                onTap: () =>
+                                    setState(() => _selectedMethod = 'upi'),
+                              ),
+                              const Gap(12),
+                              _PaymentMethodTile(
+                                label: 'Credit / Debit Card',
+                                subtitle: 'Visa, Mastercard, Rupay & more',
+                                icon: AppIcons.creditCard,
+                                iconBackground: AppColors.primaryContainer,
+                                iconColor: AppColors.primary,
+                                isSelected: _selectedMethod == 'card',
+                                onTap: () =>
+                                    setState(() => _selectedMethod = 'card'),
+                              ),
+                              const Gap(12),
+                              _PaymentMethodTile(
+                                label: 'Wallets',
+                                subtitle: 'Amazon Pay, PhonePe, Paytm & more',
+                                icon: AppIcons.walletOutlined,
+                                iconBackground: AppColors.aquaTint,
+                                iconColor: AppColors.aquaDeep,
+                                isSelected: _selectedMethod == 'wallet',
+                                onTap: () =>
+                                    setState(() => _selectedMethod = 'wallet'),
+                              ),
+                              const Gap(12),
+                              _PaymentMethodTile(
+                                label: 'LNDRY Wallet',
+                                subtitle: walletAsync.when(
+                                  data: (w) =>
+                                      'Balance: ${w.balance.toCurrencyDecimal}',
+                                  loading: () => 'Loading balance...',
+                                  error: (_, __) => 'Balance unavailable',
+                                ),
+                                icon: AppIcons.wallet,
+                                iconBackground: AppColors.tertiaryContainer,
+                                iconColor: AppColors.tertiary,
+                                isSelected: isWalletSelected,
+                                onTap: () => setState(
+                                    () => _selectedMethod = 'lndry_wallet'),
+                              ),
+                              const Gap(28),
+
+                              const _TrustBadgeRow(),
                             ],
                           ),
                         ),
-                        const Gap(12),
-                        Text(
-                          'The final amount is confirmed once the vendor weighs/recounts your items — this advance just secures your slot.',
-                          style: AppTypography.caption.copyWith(color: AppColors.onSurfaceVariant),
-                        ),
-                        const Gap(32),
-
-                        Text('Select Payment Option',
-                            style: AppTypography.titleMedium),
-                        const Gap(4),
-                        Text(
-                          'This only decides how the balance is settled at delivery.',
-                          style: AppTypography.caption.copyWith(color: AppColors.onSurfaceVariant),
-                        ),
-                        const Gap(16),
-
-                        // Payment options list
-                        _PaymentMethodTile(
-                          label: 'UPI (GPay / PhonePe / Paytm)',
-                          icon: AppIcons.upi,
-                          isSelected: _selectedMethod == 'upi',
-                          onTap: () => setState(() => _selectedMethod = 'upi'),
-                        ),
-                        const Gap(12),
-                        _PaymentMethodTile(
-                          label: 'Credit / Debit Card',
-                          icon: AppIcons.creditCard,
-                          isSelected: _selectedMethod == 'card',
-                          onTap: () => setState(() => _selectedMethod = 'card'),
-                        ),
-                        const Gap(12),
-                        _PaymentMethodTile(
-                          label: 'Wallet Pay',
-                          icon: AppIcons.walletOutlined,
-                          isSelected: _selectedMethod == 'wallet',
-                          onTap: () =>
-                              setState(() => _selectedMethod = 'wallet'),
-                        ),
-                        const Gap(12),
-                        _PaymentMethodTile(
-                          label: 'Cash on Delivery',
-                          icon: AppIcons.cashOutlined,
-                          isSelected: _selectedMethod == 'cod',
-                          onTap: () => setState(() => _selectedMethod = 'cod'),
-                        ),
-
-                        const Spacer(),
-
-                        // Secure payment note
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(AppIcons.lock,
-                                size: 14.r, color: AppColors.onSurfaceVariant),
-                            const Gap(6),
-                            Text(
-                              '100% Secure PCI-DSS compliant transactions',
-                              style: AppTypography.caption,
-                            ),
-                          ],
-                        ),
-                        const Gap(24),
-
-                        // Trigger payment CTA — every order pays the same
-                        // fixed advance online first, regardless of the
-                        // selected balance-settlement method above.
-                        AppButton(
-                          label: paymentCtaLabel,
-                          isDisabled: _isLoadingPaymentOrder,
-                          onPressed: () => _processPayment(cartState),
-                        ),
-                      ],
-                    ),
+                      ),
+                      _PaymentBottomBar(
+                        isDark: isDark,
+                        advanceDue: advanceDue,
+                        ctaLabel: paymentCtaLabel,
+                        isBusy: isCtaBusy,
+                        isDisabled: (_isLoadingPaymentOrder && !_verificationRetryPending) ||
+                            walletInsufficient,
+                        onPressed: isWalletSelected
+                            ? _payWithWallet
+                            : () => _processPayment(cartState),
+                      ),
+                    ],
                   ),
       ),
     );
   }
 }
 
-class _AmountRow extends StatelessWidget {
-  const _AmountRow({
-    required this.label,
-    required this.amount,
-    this.isBold = false,
-    this.color,
-  });
+// ═══════════════════════════════════════════════════════════════════════════
+// STEPPER — Address (done) → Payment (active) → Confirm (upcoming)
+// ═══════════════════════════════════════════════════════════════════════════
 
-  final String label;
-  final double amount;
-  final bool isBold;
-  final Color? color;
+enum _StepState { done, active, upcoming }
+
+class _CheckoutStepper extends StatelessWidget {
+  const _CheckoutStepper({required this.isDark});
+
+  final bool isDark;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Container(
+      width: double.infinity,
+      color: isDark ? AppColors.darkBackground : Colors.white,
+      padding: EdgeInsets.fromLTRB(28.w, 2.h, 28.w, 18.h),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _StepNode(label: 'Address', state: _StepState.done),
+          Expanded(child: _StepConnector(active: true)),
+          _StepNode(label: 'Payment', state: _StepState.active, number: 2),
+          Expanded(child: _StepConnector(active: false)),
+          _StepNode(label: 'Confirm', state: _StepState.upcoming, number: 3),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepNode extends StatelessWidget {
+  const _StepNode({required this.label, required this.state, this.number});
+
+  final String label;
+  final _StepState state;
+  final int? number;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDark;
+    final isActive = state == _StepState.active;
+    final isDone = state == _StepState.done;
+    final isFilled = isActive || isDone;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Text(label, style: AppTypography.bodyMedium.copyWith(color: color)),
+        Container(
+          width: 32.r,
+          height: 32.r,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isFilled
+                ? AppColors.primary
+                : (isDark ? AppColors.darkSurfaceContainer : Colors.white),
+            border: Border.all(
+              color: isFilled ? AppColors.primary : AppColors.outlineVariant,
+              width: 1.5,
+            ),
+            boxShadow: isActive
+                ? [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.35),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Center(
+            child: isDone
+                ? Icon(Icons.check_rounded, size: 16.r, color: Colors.white)
+                : Text(
+                    '$number',
+                    style: AppTypography.labelMedium.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: isActive ? Colors.white : AppColors.onSurfaceVariant,
+                    ),
+                  ),
+          ),
+        ),
+        const Gap(6),
         Text(
-          amount.toCurrencyDecimal,
-          style: (isBold ? AppTypography.titleMedium : AppTypography.bodyMedium).copyWith(
-            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-            color: color,
+          label,
+          style: AppTypography.labelSmall.copyWith(
+            color: isActive
+                ? AppColors.primary
+                : isDone
+                    ? (isDark ? AppColors.darkTextBody : AppColors.lightTextBody)
+                    : AppColors.onSurfaceVariant,
+            fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
           ),
         ),
       ],
@@ -618,66 +761,738 @@ class _AmountRow extends StatelessWidget {
   }
 }
 
+class _StepConnector extends StatelessWidget {
+  const _StepConnector({required this.active});
+
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 32.r,
+      child: Center(
+        child: Container(
+          height: 2,
+          margin: EdgeInsets.symmetric(horizontal: 6.w),
+          color: active ? AppColors.primary : AppColors.outlineVariant,
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAYMENT SUMMARY CARD
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _PaymentSummaryCard extends StatelessWidget {
+  const _PaymentSummaryCard({
+    required this.isDark,
+    required this.estimatedTotal,
+    required this.advanceDue,
+    required this.balanceDue,
+  });
+
+  final bool isDark;
+  final double estimatedTotal;
+  final double advanceDue;
+  final double balanceDue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(18.r),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurfaceContainer : Colors.white,
+        borderRadius: BorderRadius.circular(AppRadius.xxl.r),
+        boxShadow: isDark ? null : AppElevation.medium,
+        border: isDark
+            ? Border.all(color: AppColors.darkOutlineVariant)
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Payment Summary',
+                      style: AppTypography.titleLarge.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? AppColors.darkTextPrimary
+                            : AppColors.lightTextPrimary,
+                      ),
+                    ),
+                    const Gap(4),
+                    Text(
+                      'Final amount may vary after vendor weighs your items.',
+                      style: AppTypography.bodySmall
+                          .copyWith(color: AppColors.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              const Gap(6),
+              Image.asset(
+                AssetConstants.paymentFreshTowelsBanner,
+                height: 84.h,
+                fit: BoxFit.contain,
+              ),
+            ],
+          ),
+          const Gap(18),
+          _SummaryLineItem(
+            icon: AppIcons.document,
+            label: 'Total order estimate',
+            amount: estimatedTotal,
+          ),
+          const Gap(10),
+          _SummaryHighlightItem(
+            icon: AppIcons.creditCard,
+            title: 'Pay now to book slot',
+            subtitle: 'This confirms your pickup',
+            amount: advanceDue,
+          ),
+          const Gap(10),
+          _SummaryLineItem(
+            icon: AppIcons.clock,
+            label: 'Pay later after final check',
+            subtitle: 'After the vendor weighs your clothes',
+            amount: balanceDue,
+            muted: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryLineItem extends StatelessWidget {
+  const _SummaryLineItem({
+    required this.icon,
+    required this.label,
+    required this.amount,
+    this.subtitle,
+    this.muted = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String? subtitle;
+  final double amount;
+  final bool muted;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDark;
+    final primaryTextColor =
+        isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(icon, size: 18.r, color: AppColors.onSurfaceVariant),
+        const Gap(10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: AppTypography.bodyMedium.copyWith(
+                  color: muted ? AppColors.onSurfaceVariant : primaryTextColor,
+                ),
+              ),
+              if (subtitle != null) ...[
+                const Gap(2),
+                Text(
+                  subtitle!,
+                  style: AppTypography.caption
+                      .copyWith(color: AppColors.onSurfaceVariant),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const Gap(8),
+        Text(
+          amount.toCurrencyDecimal,
+          style: AppTypography.titleSmall.copyWith(
+            fontWeight: FontWeight.w700,
+            color: muted ? AppColors.onSurfaceVariant : primaryTextColor,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SummaryHighlightItem extends StatelessWidget {
+  const _SummaryHighlightItem({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.amount,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final double amount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+      decoration: BoxDecoration(
+        color: AppColors.primaryContainer,
+        borderRadius: BorderRadius.circular(AppRadius.md.r),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34.r,
+            height: 34.r,
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(AppRadius.sm.r),
+            ),
+            child: Icon(icon, size: 17.r, color: Colors.white),
+          ),
+          const Gap(10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTypography.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primaryDark,
+                  ),
+                ),
+                const Gap(2),
+                Text(
+                  subtitle,
+                  style: AppTypography.caption
+                      .copyWith(color: AppColors.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+          const Gap(8),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(AppRadius.full.r),
+            ),
+            child: Text(
+              amount.toCurrencyDecimal,
+              style: AppTypography.titleSmall
+                  .copyWith(color: Colors.white, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONFIRM-PICKUP BANNER (shirt + checkmark art)
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _ConfirmPickupBanner extends StatelessWidget {
+  const _ConfirmPickupBanner({required this.isDark, required this.advanceDue});
+
+  final bool isDark;
+  final double advanceDue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(14.r),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurfaceContainer : Colors.white,
+        borderRadius: BorderRadius.circular(AppRadius.lg.r),
+        border: Border.all(
+          color: isDark
+              ? AppColors.darkOutlineVariant
+              : AppColors.primary.withValues(alpha: 0.10),
+        ),
+        boxShadow: isDark ? null : AppElevation.low,
+      ),
+      child: Row(
+        children: [
+          Image.asset(
+            AssetConstants.paymentShirtConfirmBadge,
+            height: 76.h,
+            fit: BoxFit.contain,
+          ),
+          const Gap(14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pay ${advanceDue.toCurrencyDecimal} now to confirm pickup.',
+                  style: AppTypography.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: isDark
+                        ? AppColors.darkTextPrimary
+                        : AppColors.lightTextPrimary,
+                  ),
+                ),
+                const Gap(4),
+                Text(
+                  "After the vendor checks your clothes, you'll pay the rest at delivery.",
+                  style: AppTypography.bodySmall
+                      .copyWith(color: AppColors.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REFUND GUARANTEE BANNER
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _RefundGuaranteeBanner extends StatelessWidget {
+  const _RefundGuaranteeBanner({required this.isDark, required this.advanceDue});
+
+  final bool isDark;
+  final double advanceDue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 20.h),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurfaceContainer : Colors.white,
+        borderRadius: BorderRadius.circular(AppRadius.lg.r),
+        border: Border.all(
+          color: isDark
+              ? AppColors.darkOutlineVariant
+              : AppColors.primary.withValues(alpha: 0.10),
+        ),
+        boxShadow: isDark ? null : AppElevation.low,
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 46.r,
+            height: 46.r,
+            decoration: const BoxDecoration(
+              color: AppColors.primary,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.verified_rounded, color: Colors.white, size: 26.r),
+          ),
+          const Gap(12),
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: 'If pickup is not confirmed, ',
+                  style: AppTypography.bodySmall.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textBlack,
+                  ),
+                ),
+                TextSpan(
+                  text:
+                      'your ${advanceDue.toCurrencyDecimal} is refunded automatically to your original payment source.',
+                  style: AppTypography.bodySmall
+                      .copyWith(color: AppColors.textBlack),
+                ),
+              ],
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// "RECOMMENDED" PILL
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _RecommendedPill extends StatelessWidget {
+  const _RecommendedPill();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
+      decoration: BoxDecoration(
+        color: AppColors.secondaryLight,
+        borderRadius: BorderRadius.circular(AppRadius.full.r),
+      ),
+      child: Text(
+        'Recommended',
+        style: AppTypography.labelSmall.copyWith(
+          color: AppColors.secondaryDark,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAYMENT METHOD TILE
+// ═══════════════════════════════════════════════════════════════════════════
+
 class _PaymentMethodTile extends StatelessWidget {
   const _PaymentMethodTile({
     required this.label,
+    required this.subtitle,
     required this.icon,
+    required this.iconBackground,
+    required this.iconColor,
     required this.isSelected,
     required this.onTap,
   });
 
   final String label;
+  final String subtitle;
   final IconData icon;
+  final Color iconBackground;
+  final Color iconColor;
   final bool isSelected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return AppCard.outlined(
-      onTap: onTap,
-      borderColor: isSelected ? AppColors.primary : AppColors.outline,
-      backgroundColor: isSelected
-          ? AppColors.primaryContainer.withValues(alpha: 0.1)
-          : AppColors.transparent,
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            color: isSelected ? AppColors.primary : AppColors.onSurfaceVariant,
-          ),
-          const Gap(16),
-          Expanded(
-            child: Text(
-              label,
-              style: AppTypography.bodyMedium.copyWith(
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              ),
+    final isDark = context.isDark;
+    final primaryTextColor =
+        isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(AppRadius.lg.r),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.lg.r),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: EdgeInsets.all(14.r),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppColors.primaryContainer.withValues(alpha: isDark ? 0.18 : 0.6)
+                : (isDark ? AppColors.darkSurfaceContainer : Colors.white),
+            borderRadius: BorderRadius.circular(AppRadius.lg.r),
+            border: Border.all(
+              color: isSelected ? AppColors.primary : AppColors.outlineVariant,
+              width: isSelected ? 1.6 : 1,
             ),
+            boxShadow: isSelected && !isDark ? AppElevation.low : null,
           ),
-          Container(
-            width: 20.r,
-            height: 20.r,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: isSelected ? AppColors.primary : AppColors.outline,
-                width: 2,
+          child: Row(
+            children: [
+              Container(
+                width: 44.r,
+                height: 44.r,
+                decoration: BoxDecoration(
+                  color: iconBackground,
+                  borderRadius: BorderRadius.circular(AppRadius.md.r),
+                ),
+                child: Icon(icon, color: iconColor, size: 22.r),
               ),
-            ),
-            child: isSelected
-                ? Center(
-                    child: Container(
-                      width: 10.r,
-                      height: 10.r,
-                      decoration: const BoxDecoration(
-                        color: AppColors.primary,
-                        shape: BoxShape.circle,
+              const Gap(12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: AppTypography.titleSmall.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: primaryTextColor,
                       ),
                     ),
-                  )
-                : null,
+                    const Gap(2),
+                    Text(
+                      subtitle,
+                      style: AppTypography.caption
+                          .copyWith(color: AppColors.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              const Gap(8),
+              _RadioDot(isSelected: isSelected),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RadioDot extends StatelessWidget {
+  const _RadioDot({required this.isSelected});
+
+  final bool isSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 22.r,
+      height: 22.r,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: isSelected ? AppColors.primary : AppColors.outline,
+          width: 2,
+        ),
+      ),
+      child: isSelected
+          ? Center(
+              child: Container(
+                width: 11.r,
+                height: 11.r,
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            )
+          : null,
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TRUST BADGE ROW
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _TrustBadgeRow extends StatelessWidget {
+  const _TrustBadgeRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      children: [
+        Expanded(
+          child: _TrustBadge(
+            icon: Icons.lock_rounded,
+            label: '100% secure\ntransactions',
+          ),
+        ),
+        Expanded(
+          child: _TrustBadge(
+            icon: Icons.verified_user_rounded,
+            label: 'PCI-DSS\ncompliant',
+          ),
+        ),
+        Expanded(
+          child: _TrustBadge(
+            icon: Icons.shield_rounded,
+            label: 'Safe payments\nwith Razorpay',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TrustBadge extends StatelessWidget {
+  const _TrustBadge({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, size: 18.r, color: AppColors.primary),
+        const Gap(6),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: AppTypography.caption
+              .copyWith(color: AppColors.onSurfaceVariant, height: 1.35),
+        ),
+      ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STICKY BOTTOM CTA BAR
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _PaymentBottomBar extends StatelessWidget {
+  const _PaymentBottomBar({
+    required this.isDark,
+    required this.advanceDue,
+    required this.ctaLabel,
+    required this.isBusy,
+    required this.isDisabled,
+    required this.onPressed,
+  });
+
+  final bool isDark;
+  final double advanceDue;
+  final String ctaLabel;
+  final bool isBusy;
+  final bool isDisabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        20.w,
+        14.h,
+        20.w,
+        MediaQuery.paddingOf(context).bottom + 14.h,
+      ),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.dialog.r)),
+        boxShadow: AppElevation.high,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pay now',
+                  style: AppTypography.bodySmall
+                      .copyWith(color: AppColors.onSurfaceVariant),
+                ),
+                const Gap(2),
+                Text(
+                  advanceDue.toCurrencyDecimal,
+                  style: AppTypography.headlineSmall.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: isDark
+                        ? AppColors.darkTextPrimary
+                        : AppColors.lightTextPrimary,
+                  ),
+                ),
+                const Gap(2),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.lock_rounded,
+                        size: 11.r, color: AppColors.onSurfaceVariant),
+                    const Gap(4),
+                    Text(
+                      'Secure & encrypted',
+                      style: AppTypography.caption
+                          .copyWith(color: AppColors.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const Gap(14),
+          _GradientCtaButton(
+            label: ctaLabel,
+            isBusy: isBusy,
+            isDisabled: isDisabled,
+            onPressed: onPressed,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _GradientCtaButton extends StatelessWidget {
+  const _GradientCtaButton({
+    required this.label,
+    required this.isBusy,
+    required this.isDisabled,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool isBusy;
+  final bool isDisabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: isDisabled ? 0.55 : 1,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(AppRadius.full.r),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.full.r),
+          onTap: isDisabled ? null : onPressed,
+          child: Container(
+            height: 52.h,
+            constraints: BoxConstraints(minWidth: 150.w),
+            padding: EdgeInsets.symmetric(horizontal: 22.w),
+            decoration: BoxDecoration(
+              gradient: AppColors.signInCtaGradient,
+              borderRadius: BorderRadius.circular(AppRadius.full.r),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.35),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: Text(
+                    label,
+                    style: AppTypography.buttonText.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const Gap(8),
+                if (isBusy)
+                  SizedBox(
+                    width: 16.r,
+                    height: 16.r,
+                    child: const CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                else
+                  Icon(Icons.arrow_forward_rounded,
+                      color: Colors.white, size: 18.r),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
