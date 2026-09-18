@@ -255,6 +255,12 @@ class MockCustomerRepository implements CustomerRepository {
   }
 
   @override
+  Future<List<OrderModel>> getMyStoreOrders() async {
+    await _delay();
+    return const [];
+  }
+
+  @override
   Future<OrderModel> placeOrder(PlaceOrderRequest request) async {
     await _delay();
     // Draft-based placement: return a sensible mock order

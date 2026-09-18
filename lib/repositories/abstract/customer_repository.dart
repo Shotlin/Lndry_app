@@ -57,6 +57,10 @@ abstract interface class CustomerRepository {
   // ── Orders ────────────────────────────────────────────────────────────────
   Future<PaginatedResponse<OrderModel>> getMyOrders({PaginationParams params});
   Future<OrderModel> getOrderById(String orderId);
+
+  /// Read-only "Laundry Store" (in-person counter sale) history — pushed
+  /// by a vendor's own POS app when the buyer's phone matched this account.
+  Future<List<OrderModel>> getMyStoreOrders();
   Future<OrderModel> placeOrder(PlaceOrderRequest request);
   Future<OrderModel> cancelOrder(String orderId, {String? reason});
 

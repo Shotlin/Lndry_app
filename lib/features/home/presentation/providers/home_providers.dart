@@ -65,14 +65,30 @@ final activeOrdersProvider = FutureProvider<List<OrderModel>>((ref) async {
   return response.items.where((o) => o.status.isActive).toList();
 });
 
-/// Provider for previous order history on Home screen
+/// Provider for previous order history on Home screen. Merges real
+/// (marketplace) orders with "Laundry Store" walk-in counter sales pushed
+/// from a vendor's own POS app — a store order is always already complete,
+/// so it only ever belongs in the past list, never
+/// [activeOrdersProvider].
 final pastOrdersProvider = FutureProvider<List<OrderModel>>((ref) async {
   if (ref.watch(authProvider) is! AuthAuthenticated) return [];
   final repo = ref.watch(customerRepositoryProvider);
   final response = await repo.getMyOrders(
     params: const PaginationParams(pageSize: 10),
   );
-  return response.items.where((o) => !o.status.isActive).toList();
+  final pastOrders = response.items.where((o) => !o.status.isActive).toList();
+
+  List<OrderModel> storeOrders = const [];
+  try {
+    storeOrders = await repo.getMyStoreOrders();
+  } catch (_) {
+    // Store-order history is a bonus, not core order tracking — never let a
+    // hiccup on this call take down the real order list.
+  }
+
+  final merged = [...pastOrders, ...storeOrders]
+    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  return merged;
 });
 
 /// User address display provider on Home screen

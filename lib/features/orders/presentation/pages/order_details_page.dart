@@ -595,6 +595,15 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                     large: true,
                   ),
                 ),
+                if (order.source == 'STORE') ...[
+                  Gap(AppSpacing.xs.h),
+                  const Center(
+                    child: StatusBadge(
+                      label: 'Laundry Store',
+                      color: AppColors.tertiary,
+                    ),
+                  ),
+                ],
                 if (latestEvaluatorLabel != null) ...[
                   Gap(AppSpacing.xs.h),
                   Center(

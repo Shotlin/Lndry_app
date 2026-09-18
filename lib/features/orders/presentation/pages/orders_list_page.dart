@@ -266,6 +266,13 @@ class _ActiveOrderTileState extends ConsumerState<_ActiveOrderTile> {
                 label: order.status.label,
                 color: AppColors.primary,
               ),
+              if (order.source == 'STORE') ...[
+                Gap(AppSpacing.xs.w),
+                StatusBadge(
+                  label: 'Laundry Store',
+                  color: AppColors.tertiary,
+                ),
+              ],
             ],
           ),
           Gap(AppSpacing.cardGap.h),
@@ -400,6 +407,13 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
                 label: order.status.label,
                 color: isDelivered ? AppColors.success : AppColors.error,
               ),
+              if (order.source == 'STORE') ...[
+                Gap(AppSpacing.xs.w),
+                StatusBadge(
+                  label: 'Laundry Store',
+                  color: AppColors.tertiary,
+                ),
+              ],
             ],
           ),
           Gap(AppSpacing.cardGap.h),

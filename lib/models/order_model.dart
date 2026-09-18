@@ -256,6 +256,10 @@ class OrderModel with _$OrderModel {
     String? customerNotes,
     double? customerRating,
     String? customerReview,
+    /// 'MARKETPLACE' for a real app/website order, 'STORE' for an
+    /// in-person counter sale at a vendor's own POS (epic-laundry-desktop)
+    /// synced here because the buyer's phone matched this account.
+    @Default('MARKETPLACE') String source,
     required DateTime createdAt,
     DateTime? updatedAt,
   }) = _OrderModel;

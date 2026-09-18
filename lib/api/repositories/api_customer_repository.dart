@@ -416,6 +416,57 @@ class ApiCustomerRepository implements CustomerRepository {
     return _parseOrder(json);
   }
 
+  // ── Store Orders ("Laundry Store" walk-in counter sales) ───────────────────
+  // A vendor's own POS desktop app (epic-laundry-desktop) pushes a completed
+  // in-person sale here when the buyer's phone matches this account — these
+  // never go through the app/checkout, so they're read-only history, not
+  // real-time orders.
+
+  @override
+  Future<List<OrderModel>> getMyStoreOrders() async {
+    final resp = await _dio.get(ApiEndpoints.storeOrdersMine);
+    final list = _extractList(resp.data as Map<String, dynamic>);
+    return list.map((e) => _parseStoreOrder(e as Map<String, dynamic>)).toList();
+  }
+
+  OrderModel _parseStoreOrder(Map<String, dynamic> json) {
+    final itemsList = (json['items'] as List<dynamic>? ?? [])
+        .map((e) => e as Map<String, dynamic>)
+        .map((item) => OrderItem(
+              serviceId: '',
+              serviceName: (item['garmentName'] as String?) ??
+                  (item['name'] as String?) ??
+                  (item['serviceName'] as String?) ??
+                  'Item',
+              quantity: ((item['qty'] as num?) ?? 1).round(),
+              unitPrice: _paiseToRupees(item['ratePaise']) ?? 0.0,
+              totalPrice: _paiseToRupees(item['amountPaise']) ?? 0.0,
+              unit: (item['unit'] as String?) ?? 'piece',
+            ))
+        .toList();
+
+    return OrderModel(
+      id: json['id'] as String? ?? '',
+      orderNumber: json['orderNumber'] as String? ?? '',
+      customerId: json['customerUserId'] as String? ?? '',
+      vendorId: json['vendorId'] as String? ?? '',
+      items: itemsList,
+      // A store order is a completed, already-collected counter sale by the
+      // time it's ever pushed here — there is no in-progress state to show.
+      status: OrderStatus.delivered,
+      subtotal: _paiseToRupees(json['subtotalPaise']) ?? 0.0,
+      gstAmount: _paiseToRupees(json['taxPaise']) ?? 0.0,
+      total: _paiseToRupees(json['totalPaise']) ?? 0.0,
+      paymentMethod: _parsePaymentMethod(json['paymentMethod'] as String?),
+      isPaid: true,
+      source: 'STORE',
+      createdAt: DateTime.tryParse(json['placedAt'] as String? ??
+              json['createdAt'] as String? ??
+              '') ??
+          DateTime.now(),
+    );
+  }
+
   @override
   Future<OrderModel> placeOrder(PlaceOrderRequest request) async {
     // Draft-based placement (new flow)
