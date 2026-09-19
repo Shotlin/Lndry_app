@@ -1305,28 +1305,17 @@ class ApiCustomerRepository implements CustomerRepository {
   }
 
   @override
-  Future<InvoiceResult> getOrderInvoice(String orderId) async {
-    final resp = await _dio.get<List<int>>(
-      ApiEndpoints.orderInvoice(orderId),
-      options: Options(responseType: ResponseType.bytes),
-    );
-    final disposition = resp.headers.value('content-disposition') ?? '';
-    final filenameMatch =
-        RegExp(r'filename="?([^";]+)"?').firstMatch(disposition);
-    final fileName = filenameMatch?.group(1) ?? 'invoice-$orderId.pdf';
-    final bytes = Uint8List.fromList(resp.data ?? const <int>[]);
-    return InvoiceResult(
-      id: orderId,
-      orderId: orderId,
-      invoiceUrl: '',
-      amount: 0.0,
-      gst: 0.0,
-      platformFee: 0.0,
-      total: 0.0,
-      generatedAt: DateTime.now(),
-      pdfBytes: bytes,
-      fileName: fileName,
-    );
+  Future<InvoiceInfo> getOrderInvoice(String orderId) async {
+    try {
+      final resp = await _dio.get(ApiEndpoints.orderInvoice(orderId));
+      return InvoiceInfo.fromJson(_extractData(resp.data as Map<String, dynamic>));
+    } on DioException catch (e) {
+      // e.g. 409 "The invoice is available once your order has been
+      // delivered." — surface the server's own message.
+      final err = e.error;
+      if (err is ApiException) throw err;
+      rethrow;
+    }
   }
 
   @override

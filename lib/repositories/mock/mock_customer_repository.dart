@@ -1013,18 +1013,17 @@ class MockCustomerRepository implements CustomerRepository {
   }
 
   @override
-  Future<InvoiceResult> getOrderInvoice(String orderId) async {
+  Future<InvoiceInfo> getOrderInvoice(String orderId) async {
     await _delay();
-    return InvoiceResult(
-      id: 'inv_${DateTime.now().millisecondsSinceEpoch}',
+    return InvoiceInfo(
+      id: 'inv_mock',
+      invoiceNumber: 'INV-2627-000001',
       orderId: orderId,
-      invoiceUrl: 'https://lndry.app/invoices/mock_$orderId',
-      amount: 599.00,
-      gst: 107.82,
-      platformFee: 29.95,
+      viewUrl: 'https://lndry.app/invoices/mock_$orderId.pdf',
+      downloadUrl: 'https://lndry.app/invoices/mock_$orderId.pdf?download=1',
+      invoiceDate: DateTime.now(),
       total: 736.77,
-      generatedAt: DateTime.now(),
-      pdfUrl: 'https://lndry.app/invoices/mock_$orderId.pdf',
+      paymentStatus: 'PAID',
     );
   }
 

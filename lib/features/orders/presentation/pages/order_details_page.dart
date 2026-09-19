@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/design/design_system.dart';
@@ -11,6 +10,7 @@ import '../../../../providers/order_sync_provider.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../../shared/widgets/shared_widgets.dart';
 import '../widgets/balance_payment_card.dart';
+import '../widgets/invoice_actions.dart';
 import '../widgets/order_revision_sheet.dart';
 import '../widgets/payment_status_card.dart';
 
@@ -73,7 +73,6 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
   VendorModel? _vendor;
   // Set instead of [_order] when the id is a walk-in ("Laundry Store") order.
   StoreOrderDetail? _storeOrder;
-  InvoiceResult? _invoice;
   OtpResult? _otp;
   bool _otpPaymentPending = false;
   OrderReconciliationModel? _reconciliation;
@@ -110,13 +109,11 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
           _storeOrder = null;
           _vendor = v;
           _isLoading = false;
-          _invoice = null;
           _otp = null;
           _otpPaymentPending = false;
           _hasReviewed = null;
           _reconciliation = null;
         });
-        unawaited(_maybeFetchInvoice(o));
         unawaited(_maybeFetchOtp(o));
         unawaited(_maybeFetchReviewStatus(o));
         unawaited(_maybeFetchReconciliation(o));
@@ -222,19 +219,6 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
     }
   }
 
-  Future<void> _maybeFetchInvoice(OrderModel order) async {
-    if (order.status != OrderStatus.delivered &&
-        order.status != OrderStatus.deliveryOtpVerified) {
-      return;
-    }
-    try {
-      final invoice = await ref
-          .read(customerRepositoryProvider)
-          .getOrderInvoice(widget.orderId);
-      if (mounted) setState(() => _invoice = invoice);
-    } catch (_) {}
-  }
-
   Future<void> _maybeFetchOtp(OrderModel order) async {
     if (!order.status.showPickupOtpHint && !order.status.showDeliveryOtpHint) {
       return;
@@ -336,29 +320,6 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
       if (mounted) {
         setState(() => _isReordering = false);
         AppSnackBar.showError(context, 'Reorder failed: ${e.toString()}');
-      }
-    }
-  }
-
-  Future<void> _handleDownloadInvoice() async {
-    if (_invoice?.pdfBytes != null && _invoice!.pdfBytes!.isNotEmpty) {
-      final file = File(
-        '${Directory.systemTemp.path}${Platform.pathSeparator}${_invoice!.fileName ?? 'invoice-${widget.orderId}.pdf'}',
-      );
-      await file.writeAsBytes(_invoice!.pdfBytes!, flush: true);
-      final launched = await launchUrl(
-        Uri.file(file.path),
-        mode: LaunchMode.externalApplication,
-      );
-      if (!launched && mounted) {
-        AppSnackBar.showInfo(context, 'Invoice downloaded to ${file.path}');
-      }
-      return;
-    }
-    if (_invoice?.pdfUrl != null) {
-      final uri = Uri.tryParse(_invoice!.pdfUrl!);
-      if (uri != null && await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
     }
   }
@@ -763,6 +724,13 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                   AppCard.outlined(
                     child: Text(o.notes!, style: AppTypography.bodyMedium),
                   ),
+                ],
+
+                if (o.status == 'DELIVERED') ...[
+                  Gap(AppSpacing.md.h),
+                  Text('Invoice', style: AppTypography.titleMedium),
+                  Gap(AppSpacing.cardGap.h),
+                  InvoiceActions(orderId: o.id),
                 ],
 
                 Gap(AppSpacing.sectionGap.h),
@@ -1356,63 +1324,12 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                   Gap(AppSpacing.sectionGap.h),
                 ],
 
-                // ── Invoice Section (Delivered orders) ──────────────────
-                if (_invoice != null) ...[
+                // ── Invoice (delivered orders) ──────────────────────────
+                // Issued and laid out by the backend; the app only opens it.
+                if (order.status == OrderStatus.delivered) ...[
                   Text('Invoice', style: AppTypography.titleMedium),
                   Gap(AppSpacing.cardGap.h),
-                  AppCard.outlined(
-                    onTap: _handleDownloadInvoice,
-                    padding: EdgeInsets.all(AppSpacing.md.r),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: EdgeInsets.all(10.r),
-                          decoration: const BoxDecoration(
-                            color: AppColors.primaryContainer,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            AppIcons.document,
-                            color: AppColors.primary,
-                            size: 24.r,
-                          ),
-                        ),
-                        Gap(AppSpacing.cardGap.h),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Invoice #${_invoice!.id.length >= 8 ? _invoice!.id.substring(_invoice!.id.length - 8).toUpperCase() : _invoice!.id.toUpperCase()}',
-                                style: AppTypography.labelLarge.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              if (_invoice!.total > 0)
-                                Text(
-                                  'Total: ${_invoice!.total.toCurrencyDecimal}',
-                                  style: AppTypography.bodySmall.copyWith(
-                                    color: AppColors.onSurfaceVariant,
-                                  ),
-                                )
-                              else
-                                Text(
-                                  'PDF invoice ready',
-                                  style: AppTypography.bodySmall.copyWith(
-                                    color: AppColors.onSurfaceVariant,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                        Icon(
-                          AppIcons.download,
-                          color: AppColors.primary,
-                          size: 20.r,
-                        ),
-                      ],
-                    ),
-                  ),
+                  InvoiceActions(orderId: order.id),
                   Gap(AppSpacing.sectionGap.h),
                 ],
 

@@ -7,6 +7,7 @@ import '../../../../models/models.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../../shared/widgets/shared_widgets.dart';
 import '../../../home/presentation/providers/home_providers.dart';
+import '../widgets/invoice_actions.dart';
 
 class OrdersListPage extends ConsumerStatefulWidget {
   const OrdersListPage({super.key});
@@ -506,6 +507,11 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
               ),
             ],
           ),
+          // Delivered orders have a backend-issued invoice.
+          if (isDelivered) ...[
+            Gap(AppSpacing.xs.h),
+            InvoiceActions(orderId: order.id, compact: true),
+          ],
         ],
       ),
     );

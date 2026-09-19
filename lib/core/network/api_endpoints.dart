@@ -61,7 +61,8 @@ abstract final class ApiEndpoints {
 
   // ── Cart Milestones ────────────────────────────────────────────────────────
   static const String cartMilestonesActive = '/cart-milestones/active';
-  static String orderInvoice(String id) => '/orders/$id/invoice';
+  // Backend-issued invoice for an order (info + links to open the PDF).
+  static String orderInvoice(String orderId) => '/invoices/orders/$orderId';
   static String orderOtp(String id) => '/orders/$id/otp';
   static String orderReconciliation(String id) => '/orders/$id/reconciliation';
   static String orderReconciliationAccept(String id) => '/orders/$id/reconciliation/accept';

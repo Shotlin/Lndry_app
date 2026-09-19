@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 
 import '../../models/models.dart';
 import '../../shared/repositories/base_repository.dart';
@@ -212,8 +211,12 @@ abstract interface class CustomerRepository {
   /// Reorder a previous order.
   Future<ReorderResult> reorder(String orderId);
 
-  /// Get invoice for an order.
-  Future<InvoiceResult> getOrderInvoice(String orderId);
+  /// The backend-issued invoice for a delivered order (issued on first
+  /// request if it doesn't exist yet). The app never builds or prices an
+  /// invoice — it shows this info and opens [InvoiceInfo.viewUrl] /
+  /// [InvoiceInfo.downloadUrl]. Throws (with the server's message) if the
+  /// order isn't delivered yet.
+  Future<InvoiceInfo> getOrderInvoice(String orderId);
 
   /// Get pickup or delivery OTP for an order.
   Future<OtpResult> getOrderOtp(String orderId, {required String purpose});
@@ -939,33 +942,44 @@ class OrderItemRequest {
 
 // ── Invoice / OTP Types ──────────────────────────────────────────────────────
 
-/// Invoice data returned by GET /orders/:id/invoice.
-class InvoiceResult {
-  const InvoiceResult({
+/// Invoice info returned by GET /invoices/orders/:orderId.
+///
+/// Everything here is decided by the backend (numbers, totals, the PDF and
+/// its design). The links are short-lived signed URLs, so fetch a fresh
+/// [InvoiceInfo] each time an invoice is opened rather than caching one.
+class InvoiceInfo {
+  const InvoiceInfo({
     required this.id,
+    required this.invoiceNumber,
     required this.orderId,
-    required this.invoiceUrl,
-    required this.amount,
-    required this.gst,
-    required this.platformFee,
-    required this.total,
-    required this.generatedAt,
-    this.pdfUrl,
-    this.pdfBytes,
-    this.fileName,
+    required this.viewUrl,
+    required this.downloadUrl,
+    this.invoiceDate,
+    this.total = 0,
+    this.paymentStatus,
   });
 
+  factory InvoiceInfo.fromJson(Map<String, dynamic> json) => InvoiceInfo(
+        id: json['id']?.toString() ?? '',
+        invoiceNumber: json['invoiceNumber'] as String? ?? '',
+        orderId: json['orderId']?.toString() ?? '',
+        viewUrl: json['viewUrl'] as String? ?? '',
+        downloadUrl: json['downloadUrl'] as String? ?? '',
+        invoiceDate: DateTime.tryParse(json['invoiceDate'] as String? ?? ''),
+        total: ((json['totalPaise'] as num?) ?? 0) / 100.0,
+        paymentStatus: json['paymentStatus'] as String?,
+      );
+
   final String id;
+  final String invoiceNumber;
   final String orderId;
-  final String invoiceUrl;
-  final double amount;
-  final double gst;
-  final double platformFee;
+  final String viewUrl;
+  final String downloadUrl;
+  final DateTime? invoiceDate;
+
+  /// Grand total as printed on the invoice (rupees) — display only.
   final double total;
-  final DateTime generatedAt;
-  final String? pdfUrl;
-  final Uint8List? pdfBytes;
-  final String? fileName;
+  final String? paymentStatus;
 }
 
 /// OTP data returned by GET /orders/:id/otp.
