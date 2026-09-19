@@ -2,17 +2,63 @@ import '../../../../core/design/design_system.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../../../core/extensions/extensions.dart';
 import '../../../../core/router/app_routes.dart';
+import '../../../../repositories/repositories.dart';
 
-class OrderConfirmationPage extends StatelessWidget {
-  const OrderConfirmationPage({super.key, required this.orderId});
+class OrderConfirmationPage extends ConsumerStatefulWidget {
+  const OrderConfirmationPage({
+    super.key,
+    required this.orderId,
+    this.orderNumber,
+  });
   final String orderId;
 
-  /// Safe short ID — last 8 chars if available, otherwise full id.
-  String get _shortId {
+  /// The customer-facing order number (e.g. LNDR-20260919-43T) returned when
+  /// the order was placed. Falls back to fetching it by [orderId] if absent.
+  final String? orderNumber;
+
+  @override
+  ConsumerState<OrderConfirmationPage> createState() =>
+      _OrderConfirmationPageState();
+}
+
+class _OrderConfirmationPageState extends ConsumerState<OrderConfirmationPage> {
+  String? _orderNumber;
+
+  String get orderId => widget.orderId;
+
+  /// The same customer-facing order number the Order Details screen shows.
+  /// Only if it genuinely can't be resolved does this fall back to the short
+  /// internal-id suffix.
+  String get _displayId {
+    final number = _orderNumber;
+    if (number != null && number.isNotEmpty) return number;
     if (orderId.isEmpty) return 'NEW';
     return orderId.length > 8
         ? orderId.substring(orderId.length - 8).toUpperCase()
         : orderId.toUpperCase();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final passed = widget.orderNumber;
+    if (passed != null && passed.isNotEmpty) {
+      _orderNumber = passed;
+    } else if (orderId.isNotEmpty) {
+      _loadOrderNumber();
+    }
+  }
+
+  Future<void> _loadOrderNumber() async {
+    try {
+      final order =
+          await ref.read(customerRepositoryProvider).getOrderById(orderId);
+      if (mounted && order.orderNumber.isNotEmpty) {
+        setState(() => _orderNumber = order.orderNumber);
+      }
+    } catch (_) {
+      // Keep the short-id fallback rather than blocking the success screen.
+    }
   }
 
   @override
@@ -101,7 +147,7 @@ class OrderConfirmationPage extends StatelessWidget {
                         ),
                       ),
                       const Gap(16),
-                      _Row(label: 'Order ID', value: '#$_shortId'),
+                      _Row(label: 'Order ID', value: '#$_displayId'),
                       const Gap(8),
                       _Row(
                         label: 'Next step',

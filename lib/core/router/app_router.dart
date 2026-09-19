@@ -317,6 +317,7 @@ final List<RouteBase> _routes = [
       state: s,
       child: OrderConfirmationPage(
         orderId: s.pathParameters['orderId']!,
+        orderNumber: s.uri.queryParameters['orderNumber'],
       ),
     ),
   ),

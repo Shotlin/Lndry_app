@@ -192,9 +192,12 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
       primaryActionLabel: 'Confirm Address',
       secondaryActionLabel: '+ Add New Address',
       onSecondaryAction: _onAddNewAddress,
+      isScrollControlled: true,
+      scrollableChild: true,
       child: StatefulBuilder(
         builder: (context, setModalState) => ListView.separated(
           shrinkWrap: true,
+          physics: const ClampingScrollPhysics(),
           itemCount: _addresses.length,
           separatorBuilder: (_, __) => const Gap(8),
           itemBuilder: (context, idx) {

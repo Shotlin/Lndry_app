@@ -15,6 +15,7 @@ class AppBottomSheet extends StatelessWidget {
     this.onPrimaryAction,
     this.secondaryActionLabel,
     this.onSecondaryAction,
+    this.scrollableChild = false,
   });
 
   final String title;
@@ -23,6 +24,12 @@ class AppBottomSheet extends StatelessWidget {
   final VoidCallback? onPrimaryAction;
   final String? secondaryActionLabel;
   final VoidCallback? onSecondaryAction;
+
+  /// When true, [child] is expected to scroll on its own (e.g. a shrink-wrapped
+  /// `ListView`): the header and action buttons stay pinned and the sheet is
+  /// height-capped so a long list scrolls inside it instead of being clipped.
+  /// Only use with `isScrollControlled: true`.
+  final bool scrollableChild;
 
   static Future<T?> show<T>({
     required BuildContext context,
@@ -33,6 +40,7 @@ class AppBottomSheet extends StatelessWidget {
     String? secondaryActionLabel,
     VoidCallback? onSecondaryAction,
     bool isScrollControlled = false,
+    bool scrollableChild = false,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -58,6 +66,7 @@ class AppBottomSheet extends StatelessWidget {
             onPrimaryAction: onPrimaryAction,
             secondaryActionLabel: secondaryActionLabel,
             onSecondaryAction: onSecondaryAction,
+            scrollableChild: scrollableChild,
             child: child,
           ),
         ),
@@ -67,12 +76,73 @@ class AppBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final header = Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: AppTypography.titleLarge,
+          ),
+        ),
+        IconButton(
+          icon: const Icon(AppIcons.close),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
+    );
+
+    final actions = <Widget>[
+      if (primaryActionLabel != null) ...[
+        AppButton(
+          label: primaryActionLabel!,
+          onPressed: onPrimaryAction ?? () => Navigator.of(context).pop(),
+        ),
+        const Gap(12),
+      ],
+      if (secondaryActionLabel != null) ...[
+        AppButton.outlined(
+          label: secondaryActionLabel!,
+          onPressed: onSecondaryAction ?? () => Navigator.of(context).pop(),
+        ),
+      ],
+    ];
+
+    final padding = EdgeInsets.symmetric(
+      horizontal: AppSpacing.pagePaddingH.w,
+      vertical: AppSpacing.pagePaddingV.h,
+    );
+
+    if (scrollableChild) {
+      // Header and buttons stay pinned; only [child] scrolls, within a
+      // height cap, so every item and the action buttons are always
+      // reachable on any screen size.
+      return ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: padding,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                header,
+                const Gap(16),
+                Flexible(child: child),
+                const Gap(24),
+                ...actions,
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return SafeArea(
       child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: AppSpacing.pagePaddingH.w,
-          vertical: AppSpacing.pagePaddingV.h,
-        ),
+        padding: padding,
         // A plain non-scrolling Column here overflows/garbles its layout
         // once the keyboard shrinks available height — e.g. a multi-line
         // comment field pushed the Submit button above the field it was
@@ -83,44 +153,11 @@ class AppBottomSheet extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: AppTypography.titleLarge,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(AppIcons.close),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
+              header,
               const Gap(16),
-
-              // Content Child
               child,
               const Gap(24),
-
-              // Action Buttons
-              if (primaryActionLabel != null) ...[
-                AppButton(
-                  label: primaryActionLabel!,
-                  onPressed:
-                      onPrimaryAction ?? () => Navigator.of(context).pop(),
-                ),
-                const Gap(12),
-              ],
-              if (secondaryActionLabel != null) ...[
-                AppButton.outlined(
-                  label: secondaryActionLabel!,
-                  onPressed:
-                      onSecondaryAction ?? () => Navigator.of(context).pop(),
-                ),
-              ],
+              ...actions,
             ],
           ),
         ),

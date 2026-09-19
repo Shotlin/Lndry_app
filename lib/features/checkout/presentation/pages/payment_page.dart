@@ -463,7 +463,14 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
         context,
         isMock ? 'Demo Mode: Payment Successful!' : 'Payment Successful!',
       );
-      context.go('/orders/${placedOrder.id}/submitted');
+      context.go(
+        Uri(
+          path: '/orders/${placedOrder.id}/submitted',
+          queryParameters: placedOrder.orderNumber.isNotEmpty
+              ? {'orderNumber': placedOrder.orderNumber}
+              : null,
+        ).toString(),
+      );
     }
   }
 
