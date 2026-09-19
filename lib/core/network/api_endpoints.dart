@@ -50,6 +50,7 @@ abstract final class ApiEndpoints {
   // "Laundry Store" (in-person counter sale) history — separate backend
   // module from /orders, see store-orders.routes.js.
   static const String storeOrdersMine = '/store-orders/mine';
+  static String storeOrderById(String id) => '/store-orders/$id';
 
   // ── Coupons ─────────────────────────────────────────────────────────────────
   static const String couponValidate = '/coupons/validate';

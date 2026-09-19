@@ -61,6 +61,11 @@ abstract interface class CustomerRepository {
   /// Read-only "Laundry Store" (in-person counter sale) history — pushed
   /// by a vendor's own POS app when the buyer's phone matched this account.
   Future<List<OrderModel>> getMyStoreOrders();
+
+  /// One walk-in ("Laundry Store") order by id, with the vendor's contact
+  /// details and every payment taken — or null if [id] isn't one of this
+  /// customer's store orders. Used when an order id isn't a normal app order.
+  Future<StoreOrderDetail?> findStoreOrder(String id);
   Future<OrderModel> placeOrder(PlaceOrderRequest request);
   Future<OrderModel> cancelOrder(String orderId, {String? reason});
 
@@ -1104,4 +1109,125 @@ class UpdateProfileResult {
 
   final UserModel user;
   final ReferralRedemptionResult? referralOutcome;
+}
+
+/// Display wording for a walk-in order's status (the counter's own lifecycle,
+/// not the pickup-and-delivery one).
+String storeOrderStatusLabel(String status) => switch (status) {
+      'BOOKED' => 'Booked',
+      'PICKED_UP' => 'Picked Up',
+      'IN_PROCESS' => 'In Process',
+      'READY' => 'Ready',
+      'OUT_FOR_DELIVERY' => 'Out for Delivery',
+      'DELIVERED' => 'Delivered',
+      'CANCELLED' => 'Cancelled',
+      _ => 'Booked',
+    };
+
+/// One payment taken at the counter against a walk-in order.
+class StorePaymentLine {
+  const StorePaymentLine({
+    required this.modeLabel,
+    required this.amount,
+    required this.at,
+  });
+
+  factory StorePaymentLine.fromJson(Map<String, dynamic> json) => StorePaymentLine(
+        modeLabel: switch (json['mode'] as String?) {
+          'CASH' => 'Cash',
+          'UPI' => 'UPI',
+          'CARD' => 'Card',
+          'BANK' => 'Bank transfer',
+          'WALLET' => 'LNDRY Wallet',
+          final other => other ?? 'Payment',
+        },
+        amount: ((json['amountPaise'] as num?) ?? 0) / 100.0,
+        at: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
+      );
+
+  final String modeLabel;
+  final double amount;
+  final DateTime at;
+}
+
+/// A walk-in counter order, as shown on its details screen.
+class StoreOrderDetail {
+  const StoreOrderDetail({
+    required this.id,
+    required this.orderNumber,
+    required this.vendorName,
+    this.vendorPhone,
+    this.vendorAddress,
+    required this.status,
+    required this.items,
+    required this.subtotal,
+    required this.charges,
+    required this.discount,
+    required this.tax,
+    required this.total,
+    required this.amountPaid,
+    required this.payments,
+    required this.placedAt,
+    this.expectedDelivery,
+    this.notes,
+  });
+
+  factory StoreOrderDetail.fromJson(Map<String, dynamic> json) {
+    double rupees(String key) => ((json[key] as num?) ?? 0) / 100.0;
+    final total = rupees('totalPaise');
+    return StoreOrderDetail(
+      id: json['id'] as String? ?? '',
+      orderNumber: json['orderNumber'] as String? ?? '',
+      vendorName: json['vendorName'] as String? ?? '',
+      vendorPhone: json['vendorPhone'] as String?,
+      vendorAddress: json['vendorAddress'] as String?,
+      status: json['status'] as String? ?? 'DELIVERED',
+      items: (json['items'] as List<dynamic>? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map((e) => (
+                name: (e['name'] as String?) ?? 'Item',
+                serviceName: (e['serviceName'] as String?) ?? '',
+                qty: ((e['qty'] as num?) ?? 1).toDouble(),
+                unit: (e['unit'] as String?) ?? 'piece',
+                rate: ((e['ratePaise'] as num?) ?? 0) / 100.0,
+                amount: ((e['amountPaise'] as num?) ?? 0) / 100.0,
+              ))
+          .toList(),
+      subtotal: rupees('subtotalPaise'),
+      charges: rupees('chargesPaise'),
+      discount: rupees('discountPaise'),
+      tax: rupees('taxPaise'),
+      total: total,
+      amountPaid: json['amountPaidPaise'] == null ? total : rupees('amountPaidPaise'),
+      payments: (json['payments'] as List<dynamic>? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map(StorePaymentLine.fromJson)
+          .toList(),
+      placedAt: DateTime.tryParse(json['placedAt'] as String? ?? '') ?? DateTime.now(),
+      expectedDelivery: DateTime.tryParse(json['expectedDeliveryDate'] as String? ?? ''),
+      notes: json['notes'] as String?,
+    );
+  }
+
+  final String id;
+  final String orderNumber;
+  final String vendorName;
+  final String? vendorPhone;
+  final String? vendorAddress;
+  final String status;
+  final List<({String name, String serviceName, double qty, String unit, double rate, double amount})> items;
+  final double subtotal;
+  final double charges;
+  final double discount;
+  final double tax;
+  final double total;
+  final double amountPaid;
+  final List<StorePaymentLine> payments;
+  final DateTime placedAt;
+  final DateTime? expectedDelivery;
+  final String? notes;
+
+  String get statusLabel => storeOrderStatusLabel(status);
+  double get balanceDue => (total - amountPaid) > 0.005 ? total - amountPaid : 0;
+  bool get isCancelled => status == 'CANCELLED';
 }

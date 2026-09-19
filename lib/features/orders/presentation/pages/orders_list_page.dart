@@ -268,7 +268,7 @@ class _ActiveOrderTileState extends ConsumerState<_ActiveOrderTile> {
               ),
               Gap(AppSpacing.sm.w),
               StatusBadge(
-                label: order.status.label,
+                label: order.statusLabel,
                 color: AppColors.primary,
               ),
               if (order.source == 'STORE') ...[
@@ -281,6 +281,10 @@ class _ActiveOrderTileState extends ConsumerState<_ActiveOrderTile> {
             ],
           ),
           Gap(AppSpacing.cardGap.h),
+          if ((order.vendorName ?? '').isNotEmpty) ...[
+            _VendorLine(name: order.vendorName!),
+            Gap(AppSpacing.sm.h),
+          ],
           Row(
             children: [
               Icon(AppIcons.clock,
@@ -288,7 +292,12 @@ class _ActiveOrderTileState extends ConsumerState<_ActiveOrderTile> {
               Gap(AppSpacing.sm.h),
               Expanded(
                 child: Text(
-                  'Pickup: ${order.pickupSummary}',
+                  // A walk-in order has no pickup — show when it's due instead.
+                  order.source == 'STORE'
+                      ? (order.estimatedDeliveryAt != null
+                          ? 'Expected: ${order.estimatedDeliveryAt!.toDateString}'
+                          : 'Booked: ${order.createdAt.toDateString}')
+                      : 'Pickup: ${order.pickupSummary}',
                   style: AppTypography.bodySmall,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -311,7 +320,9 @@ class _ActiveOrderTileState extends ConsumerState<_ActiveOrderTile> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // Cancel button (only when cancellable)
-                  if (order.status.isCancellable && !_isCancelling)
+                  if (order.status.isCancellable &&
+                      order.source != 'STORE' &&
+                      !_isCancelling)
                     GestureDetector(
                       onTap: _showCancelSheet,
                       child: Text(
@@ -322,7 +333,9 @@ class _ActiveOrderTileState extends ConsumerState<_ActiveOrderTile> {
                         ),
                       ),
                     ),
-                  if (order.status.isCancellable && !_isCancelling)
+                  if (order.status.isCancellable &&
+                      order.source != 'STORE' &&
+                      !_isCancelling)
                     Gap(AppSpacing.sm.w), // FIX #4: reduced from cardGap (12w)
                   if (_isCancelling)
                     SizedBox(
@@ -409,7 +422,7 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
               ),
               Gap(AppSpacing.sm.w),
               StatusBadge(
-                label: order.status.label,
+                label: order.statusLabel,
                 color: isDelivered ? AppColors.success : AppColors.error,
               ),
               if (order.source == 'STORE') ...[
@@ -422,6 +435,10 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
             ],
           ),
           Gap(AppSpacing.cardGap.h),
+          if ((order.vendorName ?? '').isNotEmpty) ...[
+            _VendorLine(name: order.vendorName!),
+            Gap(AppSpacing.sm.h),
+          ],
           Row(
             children: [
               Icon(AppIcons.calendar,
@@ -452,7 +469,9 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // Reorder button (show for any terminal order)
-                  if (order.status.isTerminal && !_isReordering)
+                  if (order.status.isTerminal &&
+                      order.source != 'STORE' &&
+                      !_isReordering)
                     GestureDetector(
                       onTap: _handleReorder,
                       child: Text(
@@ -463,7 +482,10 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
                         ),
                       ),
                     ),
-                  if (order.status.isTerminal && !_isReordering) Gap(AppSpacing.sm.w),
+                  if (order.status.isTerminal &&
+                      order.source != 'STORE' &&
+                      !_isReordering)
+                    Gap(AppSpacing.sm.w),
                   if (_isReordering)
                     SizedBox(
                       width: 16.r,
@@ -486,6 +508,33 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// "🏬 Vendor name" — which vendor an order is with, shown on every order tile.
+class _VendorLine extends StatelessWidget {
+  const _VendorLine({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(AppIcons.store, size: 14.r, color: AppColors.primary),
+        Gap(AppSpacing.sm.h),
+        Expanded(
+          child: Text(
+            name,
+            style: AppTypography.labelMedium.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
     );
   }
 }

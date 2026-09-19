@@ -1124,6 +1124,12 @@ class MockCustomerRepository implements CustomerRepository {
   AccountDeletionRequest? _mockDeletionRequest;
 
   @override
+  Future<StoreOrderDetail?> findStoreOrder(String id) async {
+    await _delay(fast: true);
+    return null;
+  }
+
+  @override
   Future<List<FaqItem>> getFaqs() async {
     await _delay(fast: true);
     return const [

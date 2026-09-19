@@ -71,6 +71,8 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
   bool _autoOpenedRevisionSheet = false;
   OrderModel? _order;
   VendorModel? _vendor;
+  // Set instead of [_order] when the id is a walk-in ("Laundry Store") order.
+  StoreOrderDetail? _storeOrder;
   InvoiceResult? _invoice;
   OtpResult? _otp;
   bool _otpPaymentPending = false;
@@ -105,6 +107,7 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
       if (mounted) {
         setState(() {
           _order = o;
+          _storeOrder = null;
           _vendor = v;
           _isLoading = false;
           _invoice = null;
@@ -119,7 +122,19 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
         unawaited(_maybeFetchReconciliation(o));
       }
     } catch (_) {
-      if (mounted) setState(() => _isLoading = false);
+      // Not a normal app order — a walk-in ("Laundry Store") order lives in
+      // its own table, so /orders/:id doesn't know its id. Try that next.
+      StoreOrderDetail? store;
+      try {
+        store = await repo.findStoreOrder(widget.orderId);
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _storeOrder = store;
+          if (store != null) _order = null;
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -510,6 +525,265 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
         _ => '',
       };
 
+  // ── Walk-in ("Laundry Store") order ────────────────────────────────────────
+  // A counter order the vendor rang up in person. It has no pickup, rider,
+  // OTP or re-evaluation, so it gets its own read-only view instead of the
+  // pickup-and-delivery tracking screen.
+  Widget _buildStoreOrderView(
+      BuildContext context, StoreOrderDetail o, bool isDark) {
+    final theme = context.theme;
+    final statusColor = o.isCancelled
+        ? AppColors.error
+        : o.status == 'DELIVERED'
+            ? AppColors.success
+            : AppColors.primary;
+
+    Widget row(String label, String value,
+        {bool bold = false, Color? color}) {
+      final style = (bold ? AppTypography.titleSmall : AppTypography.bodyMedium)
+          .copyWith(color: color, fontWeight: bold ? FontWeight.w700 : null);
+      return Padding(
+        padding: EdgeInsets.symmetric(vertical: 3.h),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Both sides flex so a long label or amount (or a large text
+            // size) wraps instead of overflowing the row.
+            Flexible(child: Text(label, style: style)),
+            Gap(AppSpacing.sm.w),
+            Flexible(
+              child: Text(value, style: style, textAlign: TextAlign.right),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      appBar: AppBar(
+        title: Text(
+            'Order #${o.orderNumber.isNotEmpty ? o.orderNumber : _shortId(o.id)}',
+            style: AppTypography.titleLarge),
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(AppIcons.back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go(AppRoutes.orders);
+            }
+          },
+        ),
+        backgroundColor: isDark ? AppColors.darkSurface : AppColors.surface,
+        elevation: 0,
+      ),
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _loadOrderDetails,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.all(AppSpacing.pagePaddingH.w),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Vendor
+                AppCard.outlined(
+                  backgroundColor: isDark
+                      ? AppColors.darkSurfaceContainer
+                      : AppColors.surface,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(10.r),
+                        decoration: const BoxDecoration(
+                          color: AppColors.primaryContainer,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(AppIcons.store,
+                            color: AppColors.primary, size: 24.r),
+                      ),
+                      Gap(AppSpacing.cardGap.h),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              o.vendorName.isNotEmpty
+                                  ? o.vendorName
+                                  : 'Laundry Store',
+                              style: AppTypography.titleSmall
+                                  .copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            if ((o.vendorAddress ?? '').isNotEmpty)
+                              Text(
+                                o.vendorAddress!,
+                                style: AppTypography.bodySmall
+                                    .copyWith(color: AppColors.textSecondary),
+                              ),
+                            if ((o.vendorPhone ?? '').isNotEmpty)
+                              GestureDetector(
+                                onTap: () => launchUrl(
+                                  Uri(scheme: 'tel', path: o.vendorPhone),
+                                  mode: LaunchMode.externalApplication,
+                                ),
+                                child: Padding(
+                                  padding: EdgeInsets.only(top: 4.h),
+                                  child: Text(
+                                    o.vendorPhone!,
+                                    style: AppTypography.bodySmall.copyWith(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Gap(AppSpacing.md.h),
+
+                // Status + label
+                Center(
+                  child: StatusBadge(
+                      label: o.statusLabel, color: statusColor, large: true),
+                ),
+                Gap(AppSpacing.xs.h),
+                const Center(
+                  child: StatusBadge(
+                      label: 'Laundry Store', color: AppColors.tertiary),
+                ),
+                Gap(AppSpacing.sectionGap.h),
+
+                // Dates
+                AppCard.outlined(
+                  child: Column(
+                    children: [
+                      row('Ordered on', o.placedAt.toDateTimeString),
+                      if (o.expectedDelivery != null)
+                        row('Expected delivery',
+                            o.expectedDelivery!.toDateString),
+                    ],
+                  ),
+                ),
+                Gap(AppSpacing.md.h),
+
+                // Items
+                Text('Items', style: AppTypography.titleMedium),
+                Gap(AppSpacing.cardGap.h),
+                AppCard.outlined(
+                  child: Column(
+                    children: [
+                      for (final item in o.items)
+                        Padding(
+                          padding: EdgeInsets.symmetric(vertical: 6.h),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(item.name,
+                                        style: AppTypography.bodyMedium
+                                            .copyWith(
+                                                fontWeight: FontWeight.w600)),
+                                    Text(
+                                      [
+                                        if (item.serviceName.isNotEmpty)
+                                          item.serviceName,
+                                        '${item.qty % 1 == 0 ? item.qty.toInt() : item.qty} ${item.unit} × ${item.rate.toCurrencyDecimal}',
+                                      ].join(' • '),
+                                      style: AppTypography.bodySmall.copyWith(
+                                          color: AppColors.textSecondary),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Gap(AppSpacing.sm.w),
+                              Text(item.amount.toCurrencyDecimal,
+                                  style: AppTypography.bodyMedium),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                Gap(AppSpacing.md.h),
+
+                // Bill
+                Text('Bill Summary', style: AppTypography.titleMedium),
+                Gap(AppSpacing.cardGap.h),
+                AppCard.outlined(
+                  child: Column(
+                    children: [
+                      row('Subtotal', o.subtotal.toCurrencyDecimal),
+                      if (o.charges > 0)
+                        row('Charges', o.charges.toCurrencyDecimal),
+                      if (o.discount > 0)
+                        row('Discount', '- ${o.discount.toCurrencyDecimal}',
+                            color: AppColors.success),
+                      if (o.tax > 0) row('Tax', o.tax.toCurrencyDecimal),
+                      const Divider(),
+                      row('Total', o.total.toCurrencyDecimal, bold: true),
+                      row('Paid', o.amountPaid.toCurrencyDecimal),
+                      if (o.balanceDue > 0 && !o.isCancelled)
+                        row('Balance due', o.balanceDue.toCurrencyDecimal,
+                            bold: true, color: AppColors.error),
+                    ],
+                  ),
+                ),
+
+                // Payments
+                if (o.payments.isNotEmpty) ...[
+                  Gap(AppSpacing.md.h),
+                  Text('Payments', style: AppTypography.titleMedium),
+                  Gap(AppSpacing.cardGap.h),
+                  AppCard.outlined(
+                    child: Column(
+                      children: [
+                        for (final p in o.payments)
+                          row('${p.modeLabel} • ${p.at.toDateString}',
+                              p.amount.toCurrencyDecimal),
+                      ],
+                    ),
+                  ),
+                ],
+
+                // Notes
+                if ((o.notes ?? '').isNotEmpty) ...[
+                  Gap(AppSpacing.md.h),
+                  Text('Notes', style: AppTypography.titleMedium),
+                  Gap(AppSpacing.cardGap.h),
+                  AppCard.outlined(
+                    child: Text(o.notes!, style: AppTypography.bodyMedium),
+                  ),
+                ],
+
+                Gap(AppSpacing.sectionGap.h),
+                Center(
+                  child: Text(
+                    'This order was placed in person at the store.',
+                    style: AppTypography.caption
+                        .copyWith(color: AppColors.textMuted),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                Gap(AppSpacing.md.h),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
     final theme = context.theme;
@@ -531,6 +805,10 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
         appBar: AppBar(backgroundColor: AppColors.transparent, elevation: 0),
         body: const AppLoadingPage(message: 'Loading order details...'),
       );
+    }
+
+    if (_storeOrder != null) {
+      return _buildStoreOrderView(context, _storeOrder!, isDark);
     }
 
     if (_order == null) {
@@ -593,6 +871,52 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // ── Vendor — which vendor this order is with, always first ─────────
+                if (_vendor != null || (order.vendorName ?? '').isNotEmpty) ...[
+                  AppCard.outlined(
+                    backgroundColor: isDark
+                        ? AppColors.darkSurfaceContainer
+                        : AppColors.surface,
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(10.r),
+                          decoration: const BoxDecoration(
+                            color: AppColors.primaryContainer,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(AppIcons.store,
+                              color: AppColors.primary, size: 24.r),
+                        ),
+                        Gap(AppSpacing.cardGap.h),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(_vendor?.name ?? order.vendorName!,
+                                  style: AppTypography.titleSmall
+                                      .copyWith(fontWeight: FontWeight.bold)),
+                              if (order.scheduledPickupAt != null)
+                                Text(
+                                  'Pickup: ${order.pickupSummary}',
+                                  style: AppTypography.bodySmall
+                                      .copyWith(color: AppColors.textSecondary),
+                                ),
+                              if (order.estimatedDeliveryAt != null)
+                                Text(
+                                  'Delivery: ${order.estimatedDeliveryAt!.toDateTimeString}',
+                                  style: AppTypography.bodySmall
+                                      .copyWith(color: AppColors.textSecondary),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Gap(AppSpacing.md.h),
+                ],
+
                 // ── Current status ─────────────────────────────────────────
                 Center(
                   child: StatusBadge(
@@ -661,52 +985,6 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Gap(AppSpacing.md.h),
-                ],
-
-                // ── Vendor info with pickup/delivery estimates ─────────────
-                if (_vendor != null) ...[
-                  AppCard.outlined(
-                    backgroundColor: isDark
-                        ? AppColors.darkSurfaceContainer
-                        : AppColors.surface,
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: EdgeInsets.all(10.r),
-                          decoration: const BoxDecoration(
-                            color: AppColors.primaryContainer,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(AppIcons.store,
-                              color: AppColors.primary, size: 24.r),
-                        ),
-                        Gap(AppSpacing.cardGap.h),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(_vendor!.name,
-                                  style: AppTypography.titleSmall
-                                      .copyWith(fontWeight: FontWeight.bold)),
-                              if (order.scheduledPickupAt != null)
-                                Text(
-                                  'Pickup: ${order.pickupSummary}',
-                                  style: AppTypography.bodySmall
-                                      .copyWith(color: AppColors.textSecondary),
-                                ),
-                              if (order.estimatedDeliveryAt != null)
-                                Text(
-                                  'Delivery: ${order.estimatedDeliveryAt!.toDateTimeString}',
-                                  style: AppTypography.bodySmall
-                                      .copyWith(color: AppColors.textSecondary),
-                                ),
                             ],
                           ),
                         ),

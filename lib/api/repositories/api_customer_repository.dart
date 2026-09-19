@@ -429,6 +429,19 @@ class ApiCustomerRepository implements CustomerRepository {
     return list.map((e) => _parseStoreOrder(e as Map<String, dynamic>)).toList();
   }
 
+  @override
+  Future<StoreOrderDetail?> findStoreOrder(String id) async {
+    try {
+      final resp = await _dio.get(ApiEndpoints.storeOrderById(id));
+      return StoreOrderDetail.fromJson(_extractData(resp.data as Map<String, dynamic>));
+    } on DioException catch (e) {
+      // Not one of this customer's walk-in orders (or not a valid id at all).
+      final code = e.response?.statusCode;
+      if (code == 404 || code == 400) return null;
+      rethrow;
+    }
+  }
+
   OrderModel _parseStoreOrder(Map<String, dynamic> json) {
     final itemsList = (json['items'] as List<dynamic>? ?? [])
         .map((e) => e as Map<String, dynamic>)
@@ -450,15 +463,29 @@ class ApiCustomerRepository implements CustomerRepository {
       orderNumber: json['orderNumber'] as String? ?? '',
       customerId: json['customerUserId'] as String? ?? '',
       vendorId: json['vendorId'] as String? ?? '',
+      vendorName: json['vendorName'] as String?,
       items: itemsList,
-      // A store order is a completed, already-collected counter sale by the
-      // time it's ever pushed here — there is no in-progress state to show.
-      status: OrderStatus.delivered,
+      // The counter's own lifecycle, mapped onto the closest delivery status
+      // so the list can split active vs. past; [OrderModel.statusLabel]
+      // supplies the counter wording. Older synced rows are already 'DELIVERED'.
+      status: switch (json['status'] as String?) {
+        'BOOKED' => OrderStatus.vendorAccepted,
+        'PICKED_UP' => OrderStatus.pickedUp,
+        'IN_PROCESS' => OrderStatus.processing,
+        'READY' => OrderStatus.packed,
+        'OUT_FOR_DELIVERY' => OrderStatus.outForDelivery,
+        'CANCELLED' => OrderStatus.customerCancelled,
+        _ => OrderStatus.delivered,
+      },
       subtotal: _paiseToRupees(json['subtotalPaise']) ?? 0.0,
       gstAmount: _paiseToRupees(json['taxPaise']) ?? 0.0,
       total: _paiseToRupees(json['totalPaise']) ?? 0.0,
       paymentMethod: _parsePaymentMethod(json['paymentMethod'] as String?),
-      isPaid: true,
+      amountPaid: _paiseToRupees(json['amountPaidPaise']) ?? 0.0,
+      isPaid: ((json['amountPaidPaise'] as num?) ?? json['totalPaise'] as num? ?? 0) >=
+          ((json['totalPaise'] as num?) ?? 0),
+      estimatedDeliveryAt: DateTime.tryParse(json['expectedDeliveryDate'] as String? ?? ''),
+      customerNotes: json['notes'] as String?,
       source: 'STORE',
       createdAt: DateTime.tryParse(json['placedAt'] as String? ??
               json['createdAt'] as String? ??
@@ -1640,8 +1667,15 @@ class ApiCustomerRepository implements CustomerRepository {
           json['orderNumber'] as String? ?? json['order_number'] as String? ?? '',
       customerId:
           json['user_id'] as String? ?? json['customer_id'] as String? ?? '',
-      vendorId:
-          json['shop_id'] as String? ?? json['vendor_id'] as String? ?? '',
+      // The backend sends camelCase `shopId`; the snake_case keys are kept
+      // for older payloads. Missing the camelCase one left every vendorId
+      // empty, which is why no order ever showed its vendor.
+      vendorId: json['shopId'] as String? ??
+          json['shop_id'] as String? ??
+          json['vendorId'] as String? ??
+          json['vendor_id'] as String? ??
+          '',
+      vendorName: json['vendorName'] as String? ?? json['vendor_name'] as String?,
       items: itemsList,
       status: _parseOrderStatus(json['status'] as String?),
       subtotal: (json['subtotal'] as num?)?.toDouble() ??

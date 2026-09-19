@@ -303,6 +303,9 @@ class OrderModel with _$OrderModel {
     @Default('') String orderNumber,
     required String customerId,
     required String vendorId,
+    /// The vendor this order was placed with, straight from the order — so
+    /// it's shown even when the separate vendor lookup fails or is filtered.
+    String? vendorName,
     String? deliveryPartnerId,
     required List<OrderItem> items,
     required OrderStatus status,
@@ -361,6 +364,18 @@ class OrderModel with _$OrderModel {
 
   factory OrderModel.fromJson(Map<String, dynamic> json) =>
       _$OrderModelFromJson(_normalizeOrderJson(json));
+
+  /// Status wording for display. A walk-in counter order ([source] 'STORE')
+  /// reuses a few delivery statuses internally, so it gets its own wording —
+  /// otherwise a freshly booked one would read "Scheduled".
+  String get statusLabel {
+    if (source != 'STORE') return status.label;
+    return switch (status) {
+      OrderStatus.vendorAccepted => 'Booked',
+      OrderStatus.packed => 'Ready',
+      _ => status.label,
+    };
+  }
 
   /// Human-readable pickup window, e.g. "4:00 PM - 6:00 PM" — null for an
   /// express-pickup order (no fixed slot) or when slot times are
