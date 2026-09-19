@@ -1121,6 +1121,43 @@ class MockCustomerRepository implements CustomerRepository {
     return const SupportContact(phone: '+919775845587', email: 'support@lndryapp.com');
   }
 
+  AccountDeletionRequest? _mockDeletionRequest;
+
+  @override
+  Future<List<FaqItem>> getFaqs() async {
+    await _delay(fast: true);
+    return const [
+      FaqItem(
+        id: '1',
+        question: 'What is the turnaround time for delivery?',
+        answer:
+            'Most of our laundry vendors return clothes clean, folded, and ironed within 24 to 48 hours. Estimated delivery dates are shown on your order tracking timeline.',
+      ),
+      FaqItem(
+        id: '2',
+        question: 'How do I pay for my order?',
+        answer:
+            'LNDRY supports completely secure cashless payments using our built-in Razorpay gateway. You can pay via UPI (GPay, Paytm), Cards, Net Banking, or choose Cash on Delivery.',
+      ),
+    ];
+  }
+
+  @override
+  Future<AccountDeletionRequest?> getAccountDeletionRequest() async {
+    await _delay(fast: true);
+    return _mockDeletionRequest;
+  }
+
+  @override
+  Future<AccountDeletionRequest> requestAccountDeletion({String? reason}) async {
+    await _delay(fast: true);
+    return _mockDeletionRequest = AccountDeletionRequest(
+      id: 'mock-deletion',
+      status: 'PENDING',
+      requestedAt: DateTime.now(),
+    );
+  }
+
   @override
   Future<CheckoutContent> getCheckoutContent() async {
     await _delay(fast: true);

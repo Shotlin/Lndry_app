@@ -1481,6 +1481,43 @@ class ApiCustomerRepository implements CustomerRepository {
   }
 
   @override
+  Future<List<FaqItem>> getFaqs() async {
+    final resp = await _dio.get(ApiEndpoints.faqs);
+    return _extractList(resp.data as Map<String, dynamic>)
+        .whereType<Map<String, dynamic>>()
+        .map(FaqItem.fromJson)
+        .toList();
+  }
+
+  @override
+  Future<AccountDeletionRequest?> getAccountDeletionRequest() async {
+    final resp = await _dio.get(ApiEndpoints.accountDeletion);
+    final data = (resp.data as Map<String, dynamic>)['data'];
+    if (data is! Map<String, dynamic>) return null;
+    return AccountDeletionRequest.fromJson(data);
+  }
+
+  @override
+  Future<AccountDeletionRequest> requestAccountDeletion({String? reason}) async {
+    try {
+      final resp = await _dio.post(
+        ApiEndpoints.accountDeletion,
+        data: {if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim()},
+      );
+      return AccountDeletionRequest.fromJson(
+        _extractData(resp.data as Map<String, dynamic>),
+      );
+    } on DioException catch (e) {
+      // The Dio error interceptor already turned the server's message
+      // (e.g. "You have already requested account deletion.") into an
+      // ApiException — surface that instead of a raw DioException.
+      final err = e.error;
+      if (err is ApiException) throw err;
+      rethrow;
+    }
+  }
+
+  @override
   Future<CheckoutContent> getCheckoutContent() async {
     final resp = await _dio.get(ApiEndpoints.checkoutContent);
     final data = _extractData(resp.data as Map<String, dynamic>);

@@ -9,6 +9,12 @@ import '../../../../core/extensions/extensions.dart';
 import '../../../../core/router/app_routes.dart';
 import '../../../../repositories/repositories.dart';
 
+/// FAQs are managed from the admin dashboard, so they're fetched fresh each
+/// time the screen opens (autoDispose) — edits show up without an app update.
+final _faqsProvider = FutureProvider.autoDispose<List<FaqItem>>(
+  (ref) => ref.watch(customerRepositoryProvider).getFaqs(),
+);
+
 class HelpPage extends ConsumerWidget {
   const HelpPage({super.key});
 
@@ -55,24 +61,7 @@ class HelpPage extends ConsumerWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final List<_FaqItem> faqs = const [
-      _FaqItem(
-        q: 'What is the turnaround time for delivery?',
-        a: 'Most of our laundry vendors return clothes clean, folded, and ironed within 24 to 48 hours. Estimated delivery dates are shown on your order tracking timeline.',
-      ),
-      _FaqItem(
-        q: 'How do I pay for my order?',
-        a: 'LNDRY supports completely secure cashless payments using our built-in Razorpay gateway. You can pay via UPI (GPay, Paytm), Cards, Net Banking, or choose Cash on Delivery.',
-      ),
-      _FaqItem(
-        q: 'Can I cancel my scheduled pickup?',
-        a: 'Yes. Pickups can be cancelled free of charge at any time before the delivery partner is dispatched. Tap on your order details and click Cancel.',
-      ),
-      _FaqItem(
-        q: 'What if my clothes are damaged?',
-        a: 'We select only certified laundry partners. In case of any dispute or rare garment damage, contact our help support details below, and we will compensate you.',
-      ),
-    ];
+    final faqsAsync = ref.watch(_faqsProvider);
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkBackground : AppColors.background,
@@ -141,40 +130,81 @@ class HelpPage extends ConsumerWidget {
               const Gap(12),
 
               // FAQ Accordions
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: faqs.length,
-                separatorBuilder: (_, __) => const Gap(10),
-                itemBuilder: (context, idx) {
-                  final faq = faqs[idx];
-
-                  return AppCard.outlined(
-                    padding: EdgeInsets.zero,
-                    child: Material(
-                      color: isDark ? AppColors.darkSurface : AppColors.white,
-                      borderRadius: BorderRadius.circular(AppRadius.card.r),
-                      clipBehavior: Clip.antiAlias,
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
-                        child: ExpansionTile(
-                          tilePadding: EdgeInsets.zero,
-                          title: Text(faq.q, style: AppTypography.labelLarge),
-                          children: [
-                            Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8.h),
-                              child: Text(
-                                faq.a,
-                                style: AppTypography.bodySmall.copyWith(
-                                  color: AppColors.onSurfaceVariant,
-                                  height: 1.5,
-                                ),
-                              ),
-                            ),
-                          ],
+              faqsAsync.when(
+                loading: () => Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32.h),
+                  child: const Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  ),
+                ),
+                error: (_, __) => Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24.h),
+                  child: Column(
+                    children: [
+                      Text(
+                        "Couldn't load the FAQs right now.",
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.onSurfaceVariant,
                         ),
                       ),
-                    ),
+                      const Gap(12),
+                      AppButton.outlined(
+                        label: 'Try again',
+                        onPressed: () => ref.invalidate(_faqsProvider),
+                      ),
+                    ],
+                  ),
+                ),
+                data: (faqs) {
+                  if (faqs.isEmpty) {
+                    return Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24.h),
+                      child: Center(
+                        child: Text(
+                          'No FAQs available right now.',
+                          style: AppTypography.bodySmall.copyWith(
+                            color: AppColors.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  return ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: faqs.length,
+                    separatorBuilder: (_, __) => const Gap(10),
+                    itemBuilder: (context, idx) {
+                      final faq = faqs[idx];
+
+                      return AppCard.outlined(
+                        padding: EdgeInsets.zero,
+                        child: Material(
+                          color: isDark ? AppColors.darkSurface : AppColors.white,
+                          borderRadius: BorderRadius.circular(AppRadius.card.r),
+                          clipBehavior: Clip.antiAlias,
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+                            child: ExpansionTile(
+                              tilePadding: EdgeInsets.zero,
+                              title: Text(faq.question, style: AppTypography.labelLarge),
+                              children: [
+                                Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 8.h),
+                                  child: Text(
+                                    faq.answer,
+                                    style: AppTypography.bodySmall.copyWith(
+                                      color: AppColors.onSurfaceVariant,
+                                      height: 1.5,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   );
                 },
               ),
@@ -184,10 +214,4 @@ class HelpPage extends ConsumerWidget {
       ),
     );
   }
-}
-
-class _FaqItem {
-  const _FaqItem({required this.q, required this.a});
-  final String q;
-  final String a;
 }

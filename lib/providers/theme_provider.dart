@@ -5,6 +5,16 @@ import '../core/services/storage_service.dart';
 
 // ── Theme Mode Provider ───────────────────────────────────────────────────────
 
+/// The app is light-mode only for now. While this is `false`:
+///  * the Theme picker is hidden in Settings, and
+///  * [ThemeModeNotifier] ignores any saved preference and refuses changes,
+///    so the app always opens in light mode regardless of the phone's theme.
+///
+/// The dark theme (`AppTheme.darkTheme`), the persisted `keyThemeMode`
+/// preference and the picker UI are all still in the codebase — flip this to
+/// `true` to bring theme switching back.
+const bool kThemeSwitchingEnabled = false;
+
 final themeModeProvider =
     StateNotifierProvider<ThemeModeNotifier, ThemeMode>((ref) {
   final storage = ref.watch(storageServiceProvider);
@@ -19,6 +29,10 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
   final StorageService _storage;
 
   void _load() {
+    if (!kThemeSwitchingEnabled) {
+      state = ThemeMode.light;
+      return;
+    }
     final saved = _storage.getString(AppConstants.keyThemeMode);
     state = switch (saved) {
       'light' => ThemeMode.light,
@@ -29,6 +43,7 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
   }
 
   Future<void> setTheme(ThemeMode mode) async {
+    if (!kThemeSwitchingEnabled) return;
     state = mode;
     await _storage.saveString(
       AppConstants.keyThemeMode,

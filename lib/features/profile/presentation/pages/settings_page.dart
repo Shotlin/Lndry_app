@@ -6,6 +6,7 @@ import '../../../../core/extensions/extensions.dart';
 import '../../../../providers/theme_provider.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../../providers/auth_provider.dart';
+import '../../../../core/network/network.dart';
 import '../../../../core/services/storage_service.dart';
 import '../../../../config/env.dart';
 
@@ -21,10 +22,67 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   bool _prefsLoaded = false;
   bool _isSavingPrefs = false;
 
+  AccountDeletionRequest? _deletionRequest;
+  bool _isSubmittingDeletion = false;
+
   @override
   void initState() {
     super.initState();
     _loadPrefs();
+    _loadDeletionRequest();
+  }
+
+  bool get _signedIn => ref.read(authProvider) is AuthAuthenticated || Env.demoMode;
+
+  /// Whether a "Delete Account" request is already waiting for review — the
+  /// tile then shows that instead of letting the customer file a second one.
+  Future<void> _loadDeletionRequest() async {
+    if (!_signedIn) return;
+    try {
+      final request =
+          await ref.read(customerRepositoryProvider).getAccountDeletionRequest();
+      if (mounted) setState(() => _deletionRequest = request);
+    } catch (_) {
+      // Non-critical: the tile just shows its normal state.
+    }
+  }
+
+  Future<void> _confirmAndRequestDeletion() async {
+    final confirmed = await AppDialog.show(
+      context,
+      title: 'Delete your account?',
+      message:
+          'This sends a request to permanently delete your LNDRY account. '
+          'Our team reviews every request.\n\n'
+          'Once approved, your account is closed and you are signed out. '
+          'Your personal details, saved addresses and devices are permanently '
+          'erased after 30 days, and past orders are kept only in anonymous form. '
+          'Any unused wallet balance cannot be recovered afterwards.',
+      confirmLabel: 'Request Deletion',
+      isDestructive: true,
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isSubmittingDeletion = true);
+    try {
+      final request =
+          await ref.read(customerRepositoryProvider).requestAccountDeletion();
+      if (!mounted) return;
+      setState(() => _deletionRequest = request);
+      AppSnackBar.showSuccess(context, 'Account deletion request sent.');
+    } catch (e) {
+      if (!mounted) return;
+      AppSnackBar.showError(
+        context,
+        e is ApiException ? e.message : 'Could not send your request. Please try again.',
+      );
+      // A duplicate means one already exists — pick it up so the tile reflects it.
+      if (e is ApiException && e.code == 'DELETION_ALREADY_REQUESTED') {
+        _loadDeletionRequest();
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmittingDeletion = false);
+    }
   }
 
   Future<void> _loadPrefs() async {
@@ -132,11 +190,75 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
   }
 
+  Widget _buildThemeSection(bool isDark, ThemeMode themeMode) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Theme', style: AppTypography.titleMedium),
+        Gap(AppSpacing.cardGap.h),
+        AppCard.outlined(
+          padding: EdgeInsets.zero,
+          child: Material(
+            color: isDark ? AppColors.darkSurface : AppColors.white,
+            borderRadius: BorderRadius.circular(AppRadius.card.r),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                RadioListTile<ThemeMode>(
+                  title: Text('System Default',
+                      style: AppTypography.bodyMedium),
+                  value: ThemeMode.system,
+                  groupValue: themeMode,
+                  onChanged: (val) {
+                    if (val != null) {
+                      ref
+                          .read(themeModeProvider.notifier)
+                          .setTheme(val);
+                    }
+                  },
+                ),
+                Divider(height: 1, color: AppColors.outline),
+                RadioListTile<ThemeMode>(
+                  title: Text('Light Mode',
+                      style: AppTypography.bodyMedium),
+                  value: ThemeMode.light,
+                  groupValue: themeMode,
+                  onChanged: (val) {
+                    if (val != null) {
+                      ref
+                          .read(themeModeProvider.notifier)
+                          .setTheme(val);
+                    }
+                  },
+                ),
+                Divider(height: 1, color: AppColors.outline),
+                RadioListTile<ThemeMode>(
+                  title: Text('Dark Mode',
+                      style: AppTypography.bodyMedium),
+                  value: ThemeMode.dark,
+                  groupValue: themeMode,
+                  onChanged: (val) {
+                    if (val != null) {
+                      ref
+                          .read(themeModeProvider.notifier)
+                          .setTheme(val);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = context.theme;
     final isDark = theme.brightness == Brightness.dark;
-    final themeMode = ref.watch(themeModeProvider);
+    final themeMode =
+        kThemeSwitchingEnabled ? ref.watch(themeModeProvider) : ThemeMode.light;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -163,62 +285,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // ── Theme Preferences ────────────────────────────────────
-                    Text('Theme', style: AppTypography.titleMedium),
-                    Gap(AppSpacing.cardGap.h),
-                    AppCard.outlined(
-                      padding: EdgeInsets.zero,
-                      child: Material(
-                        color: isDark ? AppColors.darkSurface : AppColors.white,
-                        borderRadius: BorderRadius.circular(AppRadius.card.r),
-                        clipBehavior: Clip.antiAlias,
-                        child: Column(
-                          children: [
-                            RadioListTile<ThemeMode>(
-                              title: Text('System Default',
-                                  style: AppTypography.bodyMedium),
-                              value: ThemeMode.system,
-                              groupValue: themeMode,
-                              onChanged: (val) {
-                                if (val != null) {
-                                  ref
-                                      .read(themeModeProvider.notifier)
-                                      .setTheme(val);
-                                }
-                              },
-                            ),
-                            Divider(height: 1, color: AppColors.outline),
-                            RadioListTile<ThemeMode>(
-                              title: Text('Light Mode',
-                                  style: AppTypography.bodyMedium),
-                              value: ThemeMode.light,
-                              groupValue: themeMode,
-                              onChanged: (val) {
-                                if (val != null) {
-                                  ref
-                                      .read(themeModeProvider.notifier)
-                                      .setTheme(val);
-                                }
-                              },
-                            ),
-                            Divider(height: 1, color: AppColors.outline),
-                            RadioListTile<ThemeMode>(
-                              title: Text('Dark Mode',
-                                  style: AppTypography.bodyMedium),
-                              value: ThemeMode.dark,
-                              groupValue: themeMode,
-                              onChanged: (val) {
-                                if (val != null) {
-                                  ref
-                                      .read(themeModeProvider.notifier)
-                                      .setTheme(val);
-                                }
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    Gap(AppSpacing.sectionGap.h * 1.5),
+                    // Hidden while the app is locked to light mode; see
+                    // kThemeSwitchingEnabled in theme_provider.dart.
+                    if (kThemeSwitchingEnabled) ...[
+                      _buildThemeSection(isDark, themeMode),
+                      Gap(AppSpacing.sectionGap.h * 1.5),
+                    ],
 
                     // ── Notifications ────────────────────────────────────────
                     Text('Notifications', style: AppTypography.titleMedium),
@@ -303,6 +375,56 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       ),
                     ),
                     Gap(AppSpacing.sectionGap.h * 1.5),
+
+                    // ── Account ──────────────────────────────────────────────
+                    if (_signedIn) ...[
+                      Text('Account', style: AppTypography.titleMedium),
+                      Gap(AppSpacing.cardGap.h),
+                      AppCard.outlined(
+                        padding: EdgeInsets.zero,
+                        child: Material(
+                          color: isDark ? AppColors.darkSurface : AppColors.white,
+                          borderRadius: BorderRadius.circular(AppRadius.card.r),
+                          clipBehavior: Clip.antiAlias,
+                          child: (_deletionRequest?.isPending ?? false)
+                              ? ListTile(
+                                  leading: Icon(AppIcons.info,
+                                      color: AppColors.onSurfaceVariant),
+                                  title: Text('Account deletion requested',
+                                      style: AppTypography.bodyMedium),
+                                  subtitle: Text(
+                                    'Our team is reviewing your request.',
+                                    style: AppTypography.caption,
+                                  ),
+                                )
+                              : ListTile(
+                                  leading: Icon(AppIcons.delete,
+                                      color: AppColors.error),
+                                  title: Text(
+                                    'Delete Account',
+                                    style: AppTypography.bodyMedium
+                                        .copyWith(color: AppColors.error),
+                                  ),
+                                  subtitle: Text(
+                                    'Request permanent deletion of your account',
+                                    style: AppTypography.caption,
+                                  ),
+                                  trailing: _isSubmittingDeletion
+                                      ? SizedBox(
+                                          width: 18.r,
+                                          height: 18.r,
+                                          child: const CircularProgressIndicator(
+                                              strokeWidth: 2),
+                                        )
+                                      : null,
+                                  onTap: _isSubmittingDeletion
+                                      ? null
+                                      : _confirmAndRequestDeletion,
+                                ),
+                        ),
+                      ),
+                      Gap(AppSpacing.sectionGap.h * 1.5),
+                    ],
 
                     // ── App Version ──────────────────────────────────────────
                     Center(

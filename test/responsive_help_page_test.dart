@@ -1,7 +1,38 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lndry/features/profile/presentation/pages/help_page.dart';
+import 'package:lndry/repositories/repositories.dart';
+
+/// The FAQs are admin-managed and fetched from the backend, so the page is
+/// tested against a repository that serves the same four entries the seed
+/// migration (133_help_faqs.sql) creates.
+class _SeededFaqRepository extends MockCustomerRepository {
+  @override
+  Future<List<FaqItem>> getFaqs() async => const [
+        FaqItem(
+          id: '1',
+          question: 'What is the turnaround time for delivery?',
+          answer: 'Most vendors return clothes within 24 to 48 hours.',
+        ),
+        FaqItem(
+          id: '2',
+          question: 'How do I pay for my order?',
+          answer: 'UPI, cards, net banking or Cash on Delivery.',
+        ),
+        FaqItem(
+          id: '3',
+          question: 'Can I cancel my scheduled pickup?',
+          answer: 'Yes, any time before the delivery partner is dispatched.',
+        ),
+        FaqItem(
+          id: '4',
+          question: 'What if my clothes are damaged?',
+          answer: 'Contact support and we will compensate you.',
+        ),
+      ];
+}
 
 void main() {
   // Test configurations: {size name, width, height}
@@ -22,18 +53,24 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
 
       await tester.pumpWidget(
-        ScreenUtilInit(
-          designSize: Size(width, height),
-          minTextAdapt: true,
-          splitScreenMode: true,
-          builder: (context, child) => MaterialApp(
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context).copyWith(
-                textScaler: const TextScaler.linear(1.5),
+        ProviderScope(
+          overrides: [
+            customerRepositoryProvider
+                .overrideWithValue(_SeededFaqRepository()),
+          ],
+          child: ScreenUtilInit(
+            designSize: Size(width, height),
+            minTextAdapt: true,
+            splitScreenMode: true,
+            builder: (context, child) => MaterialApp(
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: const TextScaler.linear(1.5),
+                ),
+                child: child!,
               ),
-              child: child!,
+              home: HelpPage(),
             ),
-            home: HelpPage(),
           ),
         ),
       );

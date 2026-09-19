@@ -673,18 +673,6 @@ class _HomeHeroBackground extends ConsumerWidget {
                       ],
                     ),
                     const Gap(8),
-                    _HeroIconButton(
-                      icon: Icons.star_outline_rounded,
-                      tooltip: 'Last order & review',
-                      onPressed: () => requireAuthenticated(
-                        context: context,
-                        ref: ref,
-                        returnTo: AppRoutes.lastOrderReview,
-                        action: (context, _) =>
-                            context.push(AppRoutes.lastOrderReview),
-                      ),
-                    ),
-                    const Gap(8),
                     // Avatar
                     GestureDetector(
                       onTap: () => context.go(AppRoutes.profile),
@@ -822,12 +810,10 @@ class _OutlinedText extends StatelessWidget {
 /// on the hero image (unlike a plain [IconButton], which would blend into
 /// busier parts of the photo).
 class _HeroIconButton extends StatelessWidget {
-  const _HeroIconButton(
-      {required this.icon, required this.onPressed, this.tooltip});
+  const _HeroIconButton({required this.icon, required this.onPressed});
 
   final IconData icon;
   final VoidCallback onPressed;
-  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
@@ -842,7 +828,6 @@ class _HeroIconButton extends StatelessWidget {
       child: IconButton(
         padding: EdgeInsets.zero,
         icon: Icon(icon, color: AppColors.textBlack, size: 20.r),
-        tooltip: tooltip,
         onPressed: onPressed,
       ),
     );

@@ -283,6 +283,20 @@ abstract interface class CustomerRepository {
   /// "Call Us" action and the order-revision reject flow's "Talk to Support".
   Future<SupportContact> getSupportContact();
 
+  /// The Help & FAQs list, managed from the admin dashboard (Help & FAQs).
+  /// Only FAQs the admin has enabled are returned, already in display order.
+  Future<List<FaqItem>> getFaqs();
+
+  // ── Account deletion ────────────────────────────────────────────────────────
+  /// The customer's current account-deletion request (pending, or the most
+  /// recent decided one), or null if they've never asked.
+  Future<AccountDeletionRequest?> getAccountDeletionRequest();
+
+  /// Asks for the account to be deleted. Nothing is deleted yet — an admin
+  /// approves or rejects it, and approved accounts are wiped after 30 days.
+  /// Throws if a request is already pending.
+  Future<AccountDeletionRequest> requestAccountDeletion({String? reason});
+
   /// The admin-editable advance-payment / refund messages shown on the
   /// payment screen (Fees → Checkout Content in the dashboard). Any value
   /// the server doesn't provide falls back to the built-in text.
@@ -308,6 +322,49 @@ class SupportContact {
 
   final String? phone;
   final String? email;
+}
+
+/// One Help & FAQs entry.
+class FaqItem {
+  const FaqItem({required this.id, required this.question, required this.answer});
+
+  factory FaqItem.fromJson(Map<String, dynamic> json) => FaqItem(
+        id: json['id']?.toString() ?? '',
+        question: json['question'] as String? ?? '',
+        answer: json['answer'] as String? ?? '',
+      );
+
+  final String id;
+  final String question;
+  final String answer;
+}
+
+/// A customer's "delete my account" request. [status] is one of
+/// PENDING / APPROVED / REJECTED / COMPLETED.
+class AccountDeletionRequest {
+  const AccountDeletionRequest({
+    required this.id,
+    required this.status,
+    required this.requestedAt,
+    this.scheduledDeletionAt,
+  });
+
+  factory AccountDeletionRequest.fromJson(Map<String, dynamic> json) =>
+      AccountDeletionRequest(
+        id: json['id']?.toString() ?? '',
+        status: json['status'] as String? ?? 'PENDING',
+        requestedAt: DateTime.tryParse(json['requestedAt'] as String? ?? '') ??
+            DateTime.now(),
+        scheduledDeletionAt:
+            DateTime.tryParse(json['scheduledDeletionAt'] as String? ?? ''),
+      );
+
+  final String id;
+  final String status;
+  final DateTime requestedAt;
+  final DateTime? scheduledDeletionAt;
+
+  bool get isPending => status == 'PENDING';
 }
 
 /// Payment-screen copy, editable from the admin dashboard. `{amount}` in any
