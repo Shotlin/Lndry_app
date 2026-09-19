@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/design/design_system.dart';
+import '../../../../core/network/network.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../../../core/extensions/extensions.dart';
 import '../../../../providers/auth_provider.dart';
@@ -61,7 +62,12 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       }
     } catch (e) {
       if (mounted) {
-        AppSnackBar.showError(context, e.toString());
+        AppSnackBar.showError(
+          context,
+          e is ApiException
+              ? e.message
+              : 'Could not update your profile. Please try again.',
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);

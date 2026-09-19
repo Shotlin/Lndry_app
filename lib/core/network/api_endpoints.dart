@@ -101,6 +101,7 @@ abstract final class ApiEndpoints {
   static const String devices = '/devices';
   static String deviceById(String id) => '/devices/$id';
   static const String supportContact = '/customer/support-contact';
+  static const String checkoutContent = '/customer/checkout-content';
 
   // ── Reviews ─────────────────────────────────────────────────────────────────
   static String vendorReviews(String vendorId) => '/reviews/vendors/$vendorId';

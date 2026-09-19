@@ -14,6 +14,7 @@ import '../../../checkout/presentation/widgets/checkout_brand_header.dart';
 import '../../../home/presentation/providers/home_providers.dart';
 import '../../../wallet/presentation/providers/wallet_providers.dart';
 import '../controllers/razorpay_payment_controller.dart';
+import '../providers/checkout_content_provider.dart';
 
 /// Display-only fallback for the "Pay Now (Advance)" figure while the real
 /// payment order is still loading from the server — the actual Razorpay
@@ -490,6 +491,10 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
     final session = GoRouterState.of(context).extra as CheckoutSession?;
     final estimatedTotal = session?.finalPrice ?? cartState.total;
     final advanceDue = _pendingPaymentOrder?.amount ?? _fallbackAdvanceDisplay;
+    // Admin-editable copy; `.value` is null only while the first fetch is in
+    // flight, so the built-in text shows instead of a blank banner.
+    final checkoutContent =
+        ref.watch(checkoutContentProvider).value ?? CheckoutContent.fallback;
     final balanceDue = (estimatedTotal - advanceDue).clamp(0, double.infinity);
     final walletAsync = ref.watch(walletProvider);
     final walletBalance = walletAsync.value?.balance;
@@ -559,6 +564,7 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
                               _ConfirmPickupBanner(
                                 isDark: isDark,
                                 advanceDue: advanceDue,
+                                content: checkoutContent,
                               ),
                               const Gap(12),
 
@@ -569,6 +575,7 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
                               _RefundGuaranteeBanner(
                                 isDark: isDark,
                                 advanceDue: advanceDue,
+                                content: checkoutContent,
                               ),
                               const Gap(28),
 
@@ -1018,10 +1025,15 @@ class _SummaryHighlightItem extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _ConfirmPickupBanner extends StatelessWidget {
-  const _ConfirmPickupBanner({required this.isDark, required this.advanceDue});
+  const _ConfirmPickupBanner({
+    required this.isDark,
+    required this.advanceDue,
+    required this.content,
+  });
 
   final bool isDark;
   final double advanceDue;
+  final CheckoutContent content;
 
   @override
   Widget build(BuildContext context) {
@@ -1050,7 +1062,8 @@ class _ConfirmPickupBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Pay ${advanceDue.toCurrencyDecimal} now to confirm pickup.',
+                  CheckoutContent.withAmount(
+                      content.advanceTitle, advanceDue.toCurrencyDecimal),
                   style: AppTypography.bodyMedium.copyWith(
                     fontWeight: FontWeight.w700,
                     color: isDark
@@ -1060,7 +1073,8 @@ class _ConfirmPickupBanner extends StatelessWidget {
                 ),
                 const Gap(4),
                 Text(
-                  "After the vendor checks your clothes, you'll pay the rest at delivery.",
+                  CheckoutContent.withAmount(
+                      content.advanceSubtitle, advanceDue.toCurrencyDecimal),
                   style: AppTypography.bodySmall
                       .copyWith(color: AppColors.onSurfaceVariant),
                 ),
@@ -1078,10 +1092,15 @@ class _ConfirmPickupBanner extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _RefundGuaranteeBanner extends StatelessWidget {
-  const _RefundGuaranteeBanner({required this.isDark, required this.advanceDue});
+  const _RefundGuaranteeBanner({
+    required this.isDark,
+    required this.advanceDue,
+    required this.content,
+  });
 
   final bool isDark;
   final double advanceDue;
+  final CheckoutContent content;
 
   @override
   Widget build(BuildContext context) {
@@ -1114,15 +1133,16 @@ class _RefundGuaranteeBanner extends StatelessWidget {
             TextSpan(
               children: [
                 TextSpan(
-                  text: 'If pickup is not confirmed, ',
+                  text:
+                      '${CheckoutContent.withAmount(content.refundTitle, advanceDue.toCurrencyDecimal)} ',
                   style: AppTypography.bodySmall.copyWith(
                     fontWeight: FontWeight.w700,
                     color: AppColors.textBlack,
                   ),
                 ),
                 TextSpan(
-                  text:
-                      'your ${advanceDue.toCurrencyDecimal} is refunded automatically to your original payment source.',
+                  text: CheckoutContent.withAmount(
+                      content.refundBody, advanceDue.toCurrencyDecimal),
                   style: AppTypography.bodySmall
                       .copyWith(color: AppColors.textBlack),
                 ),

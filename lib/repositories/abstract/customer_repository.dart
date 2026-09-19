@@ -283,6 +283,11 @@ abstract interface class CustomerRepository {
   /// "Call Us" action and the order-revision reject flow's "Talk to Support".
   Future<SupportContact> getSupportContact();
 
+  /// The admin-editable advance-payment / refund messages shown on the
+  /// payment screen (Fees → Checkout Content in the dashboard). Any value
+  /// the server doesn't provide falls back to the built-in text.
+  Future<CheckoutContent> getCheckoutContent();
+
   // ── Order Reconciliation ──────────────────────────────────────────────────
   /// The vendor's proposed recalculation currently awaiting this customer's
   /// decision, or null if there isn't one. Also returns the last one shown
@@ -303,6 +308,51 @@ class SupportContact {
 
   final String? phone;
   final String? email;
+}
+
+/// Payment-screen copy, editable from the admin dashboard. `{amount}` in any
+/// message is replaced with the live advance amount at display time, so the
+/// text never carries a hardcoded figure.
+class CheckoutContent {
+  const CheckoutContent({
+    required this.advanceTitle,
+    required this.advanceSubtitle,
+    required this.refundTitle,
+    required this.refundBody,
+  });
+
+  /// Built-in text — used whenever the server value is missing or empty.
+  static const CheckoutContent fallback = CheckoutContent(
+    advanceTitle: 'Pay {amount} now to confirm pickup.',
+    advanceSubtitle:
+        "After the vendor checks your clothes, you'll pay the rest at delivery.",
+    refundTitle: 'If pickup is not confirmed,',
+    refundBody:
+        'your {amount} is refunded automatically to your original payment source.',
+  );
+
+  factory CheckoutContent.fromJson(Map<String, dynamic> json) {
+    String pick(String key, String fallbackValue) {
+      final v = json[key];
+      return v is String && v.trim().isNotEmpty ? v : fallbackValue;
+    }
+
+    return CheckoutContent(
+      advanceTitle: pick('advanceTitle', fallback.advanceTitle),
+      advanceSubtitle: pick('advanceSubtitle', fallback.advanceSubtitle),
+      refundTitle: pick('refundTitle', fallback.refundTitle),
+      refundBody: pick('refundBody', fallback.refundBody),
+    );
+  }
+
+  final String advanceTitle;
+  final String advanceSubtitle;
+  final String refundTitle;
+  final String refundBody;
+
+  /// Substitutes the live advance amount into a message template.
+  static String withAmount(String template, String amount) =>
+      template.replaceAll('{amount}', amount);
 }
 
 // ── Search Result Types ───────────────────────────────────────────────────────-

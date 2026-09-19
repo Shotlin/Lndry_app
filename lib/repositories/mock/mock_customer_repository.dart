@@ -1121,6 +1121,12 @@ class MockCustomerRepository implements CustomerRepository {
     return const SupportContact(phone: '+919775845587', email: 'support@lndryapp.com');
   }
 
+  @override
+  Future<CheckoutContent> getCheckoutContent() async {
+    await _delay(fast: true);
+    return CheckoutContent.fallback;
+  }
+
   // ── Order Reconciliation ──────────────────────────────────────────────────
   @override
   Future<OrderReconciliationModel?> getOrderReconciliation(String orderId) async {

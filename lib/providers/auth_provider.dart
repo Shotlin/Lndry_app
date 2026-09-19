@@ -319,19 +319,27 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final prev = state;
     if (prev is! AuthAuthenticated) return;
 
+    // A blank optional email is "not provided" — sending "" fails the
+    // backend's email-format validation (same handling as completeProfile).
+    final cleanEmail = email.trim().isEmpty ? null : email.trim();
+
+    // Deliberately no local-only fallback: if the server doesn't confirm the
+    // save, this throws so the caller shows an error instead of a success
+    // message for a name that was never persisted.
+    final result = await _repo.updateProfile(
+      UpdateProfileRequest(name: name.trim(), email: cleanEmail),
+    );
+
+    // Re-read the persisted record so the app shows exactly what the server
+    // (and the admin dashboard) now hold.
+    UserModel persisted;
     try {
-      final result = await _repo.updateProfile(
-        UpdateProfileRequest(name: name, email: email),
-      );
-      await _saveUserPrefs(result.user);
-      state = AuthAuthenticated(result.user);
-    } catch (e) {
-      // Fallback: update locally if API fails
-      final updated = prev.user.copyWith(name: name, email: email);
-      await _storage.saveString('user_name', name);
-      await _storage.saveString('user_email', email);
-      state = AuthAuthenticated(updated);
+      persisted = await _repo.getProfile();
+    } catch (_) {
+      persisted = result.user;
     }
+    await _saveUserPrefs(persisted);
+    state = AuthAuthenticated(persisted);
   }
 
   Future<void> updateAuthenticatedAvatar(String avatarUrl) async {

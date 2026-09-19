@@ -1480,6 +1480,13 @@ class ApiCustomerRepository implements CustomerRepository {
     );
   }
 
+  @override
+  Future<CheckoutContent> getCheckoutContent() async {
+    final resp = await _dio.get(ApiEndpoints.checkoutContent);
+    final data = _extractData(resp.data as Map<String, dynamic>);
+    return CheckoutContent.fromJson(data);
+  }
+
   // ── Order Reconciliation ──────────────────────────────────────────────────
   @override
   Future<OrderReconciliationModel?> getOrderReconciliation(String orderId) async {
