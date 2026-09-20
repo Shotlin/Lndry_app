@@ -13,6 +13,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../checkout/presentation/controllers/razorpay_payment_controller.dart';
 import '../providers/wallet_providers.dart';
+import '../../../../core/network/friendly_error.dart';
 
 /// "My Wallet" — balance, transaction history, and a way to add money.
 /// Reachable from Profile → Account Details, alongside Coupons & Offers.
@@ -70,7 +71,7 @@ class _WalletPageState extends ConsumerState<WalletPage> {
       if (mounted) {
         setState(() => _isToppingUp = false);
         AppSnackBar.showError(
-            context, 'Could not start top-up: ${e.toString()}');
+            context, 'Could not start top-up: ${friendlyError(e)}');
       }
     }
   }
@@ -104,7 +105,7 @@ class _WalletPageState extends ConsumerState<WalletPage> {
       if (mounted) {
         setState(() => _isToppingUp = false);
         AppSnackBar.showError(
-            context, 'Top-up verification failed: ${e.toString()}');
+            context, 'Top-up verification failed: ${friendlyError(e)}');
       }
     }
   }

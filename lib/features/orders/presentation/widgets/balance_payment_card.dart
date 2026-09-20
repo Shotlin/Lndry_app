@@ -9,6 +9,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../checkout/presentation/controllers/razorpay_payment_controller.dart';
 import '../../../wallet/presentation/providers/wallet_providers.dart';
+import '../../../../core/network/friendly_error.dart';
 
 /// Shown on the order-details page once an order reaches the delivery leg
 /// with a balance still due. COD orders show an informational cash note
@@ -161,7 +162,7 @@ class _BalancePaySheetContentState extends ConsumerState<_BalancePaySheetContent
     } catch (e) {
       if (mounted) {
         setState(() => _isProcessing = false);
-        AppSnackBar.showError(context, 'Could not start payment: ${e.toString()}');
+        AppSnackBar.showError(context, 'Could not start payment: ${friendlyError(e)}');
       }
     }
   }
@@ -243,7 +244,7 @@ class _BalancePaySheetContentState extends ConsumerState<_BalancePaySheetContent
     } catch (e) {
       if (mounted) {
         setState(() => _isProcessing = false);
-        AppSnackBar.showError(context, 'Could not pay from wallet: ${e.toString()}');
+        AppSnackBar.showError(context, 'Could not pay from wallet: ${friendlyError(e)}');
       }
     }
   }

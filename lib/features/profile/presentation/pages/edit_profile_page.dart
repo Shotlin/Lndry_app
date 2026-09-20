@@ -8,6 +8,7 @@ import '../../../../core/widgets/widgets.dart';
 import '../../../../core/extensions/extensions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../repositories/repositories.dart';
+import '../../../../core/network/friendly_error.dart';
 
 class EditProfilePage extends ConsumerStatefulWidget {
   const EditProfilePage({super.key});
@@ -99,7 +100,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         AppSnackBar.showSuccess(context, 'Profile photo updated.');
       }
     } catch (e) {
-      if (mounted) AppSnackBar.showError(context, e.toString());
+      if (mounted) AppSnackBar.showError(context, friendlyError(e));
     } finally {
       if (mounted) setState(() => _isUploadingAvatar = false);
     }

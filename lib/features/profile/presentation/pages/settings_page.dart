@@ -9,6 +9,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../core/network/network.dart';
 import '../../../../core/services/storage_service.dart';
 import '../../../../config/env.dart';
+import '../../../../core/network/friendly_error.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -184,7 +185,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           );
       if (mounted) setState(() => _notificationPrefs = updated);
     } catch (e) {
-      if (mounted) AppSnackBar.showError(context, e.toString());
+      if (mounted) AppSnackBar.showError(context, friendlyError(e));
     } finally {
       if (mounted) setState(() => _isSavingPrefs = false);
     }

@@ -13,6 +13,8 @@ import '../widgets/balance_payment_card.dart';
 import '../widgets/invoice_actions.dart';
 import '../widgets/order_revision_sheet.dart';
 import '../widgets/payment_status_card.dart';
+import '../../../../core/network/friendly_error.dart';
+import '../../../cart/presentation/providers/cart_providers.dart';
 
 /// A continuous-unit item's (kg/sq ft) real decimal quantity can't live in
 /// the INTEGER order_lines.quantity column once a rider/vendor correction
@@ -192,7 +194,7 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
       }
       await _loadOrderDetails();
     } catch (e) {
-      if (mounted) AppSnackBar.showError(context, 'Failed to submit your decision: $e');
+      if (mounted) AppSnackBar.showError(context, 'Failed to submit your decision: ${friendlyError(e)}');
     } finally {
       if (mounted) setState(() => _isProcessingReconciliation = false);
     }
@@ -213,7 +215,7 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
         AppSnackBar.showError(context, 'Could not open the dialer.');
       }
     } catch (e) {
-      if (mounted) AppSnackBar.showError(context, 'Failed to fetch support contact: $e');
+      if (mounted) AppSnackBar.showError(context, 'Failed to fetch support contact: ${friendlyError(e)}');
     } finally {
       if (mounted) setState(() => _isCallingSupport = false);
     }
@@ -301,9 +303,19 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isCancelling = false);
-        AppSnackBar.showError(context, 'Failed to cancel: ${e.toString()}');
+        AppSnackBar.showError(context, 'Failed to cancel: ${friendlyError(e)}');
       }
     }
+  }
+
+  /// Reorder goes straight to the normal Checkout screen (the same one a fresh
+  /// booking uses) — never the legacy Cart screen. The selection was rebuilt
+  /// from the laundry's CURRENT services and prices by `repo.reorder`.
+  Future<void> _openCheckoutForReorder(ReorderResult result) async {
+    await ref.read(cartStateProvider.notifier).refresh();
+    if (!mounted) return;
+    if (result.warnings.isNotEmpty) AppSnackBar.showInfo(context, result.message);
+    context.push(AppRoutes.checkout);
   }
 
   Future<void> _handleReorder() async {
@@ -313,13 +325,12 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
       final result = await repo.reorder(widget.orderId);
       if (mounted) {
         setState(() => _isReordering = false);
-        AppSnackBar.showSuccess(context, result.message);
-        context.go(AppRoutes.cart);
+        await _openCheckoutForReorder(result);
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isReordering = false);
-        AppSnackBar.showError(context, 'Reorder failed: ${e.toString()}');
+        AppSnackBar.showError(context, 'Reorder failed: ${friendlyError(e)}');
       }
     }
   }
@@ -406,7 +417,7 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
         AppSnackBar.showSuccess(context, 'Review submitted.');
       }
     } catch (e) {
-      if (mounted) AppSnackBar.showError(context, e.toString());
+      if (mounted) AppSnackBar.showError(context, friendlyError(e));
     } finally {
       commentController.dispose();
       if (mounted) setState(() => _isSubmittingReview = false);

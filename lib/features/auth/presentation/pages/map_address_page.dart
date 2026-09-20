@@ -27,6 +27,7 @@ import '../../../../models/models.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../../config/env.dart';
+import '../../../../core/network/friendly_error.dart';
 
 class MapAddressPage extends ConsumerStatefulWidget {
   const MapAddressPage({
@@ -384,7 +385,7 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
       return true;
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[ReverseGeocode] Ola Maps failed, falling back: $e');
+        debugPrint('[ReverseGeocode] Ola Maps failed, falling back: ${friendlyError(e)}');
       }
       return false;
     }
@@ -467,7 +468,7 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
       });
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[ReverseGeocode] Error: $e');
+        debugPrint('[ReverseGeocode] Error: ${friendlyError(e)}');
       }
       if (mounted) {
         AppSnackBar.showError(context, 'Could not read address from map pin.');

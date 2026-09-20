@@ -9,6 +9,7 @@ import '../../../../core/extensions/extensions.dart';
 import '../../../../core/router/app_routes.dart';
 import '../../../../models/models.dart';
 import '../../../../repositories/repositories.dart';
+import '../../../../core/network/friendly_error.dart';
 
 class NotificationsPage extends ConsumerStatefulWidget {
   const NotificationsPage({super.key});
@@ -58,7 +59,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
       _loadNotifications();
       if (mounted) AppSnackBar.showSuccess(context, 'All notifications read.');
     } catch (e) {
-      if (mounted) AppSnackBar.showError(context, e.toString());
+      if (mounted) AppSnackBar.showError(context, friendlyError(e));
     }
   }
 
@@ -73,7 +74,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _notifications = previous);
-        AppSnackBar.showError(context, e.toString());
+        AppSnackBar.showError(context, friendlyError(e));
       }
     }
   }

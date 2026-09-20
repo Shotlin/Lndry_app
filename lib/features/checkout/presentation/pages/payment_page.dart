@@ -15,6 +15,7 @@ import '../../../home/presentation/providers/home_providers.dart';
 import '../../../wallet/presentation/providers/wallet_providers.dart';
 import '../controllers/razorpay_payment_controller.dart';
 import '../providers/checkout_content_provider.dart';
+import '../../../../core/network/friendly_error.dart';
 
 /// Display-only fallback for the "Pay Now (Advance)" figure while the real
 /// payment order is still loading from the server — the actual Razorpay
@@ -89,7 +90,7 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoadingPaymentOrder = false);
-        AppSnackBar.showError(context, 'Could not prepare payment: ${e.toString()}');
+        AppSnackBar.showError(context, 'Could not prepare payment: ${friendlyError(e)}');
       }
     }
   }
@@ -192,7 +193,7 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isProcessing = false);
-        AppSnackBar.showError(context, 'Transaction failed: ${e.toString()}');
+        AppSnackBar.showError(context, 'Transaction failed: ${friendlyError(e)}');
       }
     }
   }
@@ -247,7 +248,7 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
         _isProcessing = false;
         _isVerifyingPayment = false;
       });
-      AppSnackBar.showError(context, 'Wallet payment failed: ${e.toString()}');
+      AppSnackBar.showError(context, 'Wallet payment failed: ${friendlyError(e)}');
     }
   }
 

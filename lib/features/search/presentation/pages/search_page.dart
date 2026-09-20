@@ -8,6 +8,7 @@ import '../../../../models/models.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../../shared/repositories/base_repository.dart';
 import '../../../../shared/widgets/service_icon.dart';
+import '../../../../core/network/friendly_error.dart';
 
 class SearchPage extends ConsumerStatefulWidget {
   const SearchPage({super.key});
@@ -50,7 +51,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       );
       if (mounted) setState(() {});
     } catch (e) {
-      debugPrint('[SpeechToText] Init failed: $e');
+      debugPrint('[SpeechToText] Init failed: ${friendlyError(e)}');
     }
   }
 
@@ -68,7 +69,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           },
         );
       } catch (e) {
-        debugPrint('[SpeechToText] Init failed: $e');
+        debugPrint('[SpeechToText] Init failed: ${friendlyError(e)}');
         if (mounted) {
           AppSnackBar.showError(context, 'Failed to initialize speech recognition.');
         }

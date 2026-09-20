@@ -1287,20 +1287,57 @@ class ApiCustomerRepository implements CustomerRepository {
 
   @override
   Future<ReorderResult> reorder(String orderId) async {
-    final resp = await _dio.post(ApiEndpoints.reorder(orderId));
-    final body = resp.data as Map<String, dynamic>;
-    final data = _extractData(body);
-    final warnings = (body['warnings'] as List<dynamic>? ?? [])
-        .map((e) => e.toString())
+    // The backend treats the old order only as a reference: it re-checks the
+    // laundry and re-prices every item against what is offered TODAY, and
+    // returns just what can be ordered now (plus what can't). Nothing stale
+    // from the old order is reused here.
+    final resp = await _dio.post(
+      ApiEndpoints.reorder(orderId),
+      data: const <String, dynamic>{},
+    );
+    final data = _extractData(resp.data as Map<String, dynamic>);
+    final vendorId = data['vendorId'] as String? ?? '';
+    final items = (data['items'] as List<dynamic>? ?? [])
+        .whereType<Map<String, dynamic>>()
         .toList();
-    final items = data['items'] as List<dynamic>? ?? [];
+    final unavailable = (data['unavailable'] as List<dynamic>? ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map((e) => e['name'] as String? ?? '')
+        .where((name) => name.isNotEmpty)
+        .toList();
+
+    if (vendorId.isEmpty || items.isEmpty) {
+      throw const ApiException(
+        message: 'None of the items from this order are available right now.',
+        statusCode: 409,
+      );
+    }
+
+    // The selection buffer that Checkout reads becomes exactly this reorder:
+    // whatever was left in it from earlier browsing is dropped, so Checkout
+    // prices what the customer asked to repeat — nothing more, nothing stale.
+    await clearCart();
+    var added = 0;
+    for (final item in items) {
+      final serviceId = item['serviceId'] as String? ?? '';
+      final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
+      if (serviceId.isEmpty || quantity <= 0) continue;
+      await addToCart(
+          serviceId: serviceId, vendorId: vendorId, quantity: quantity);
+      added += quantity;
+    }
+
+    var message = added == 1
+        ? '1 item added to your cart.'
+        : '$added items added to your cart.';
+    if (unavailable.isNotEmpty) {
+      message += ' Not available right now: ${unavailable.join(', ')}.';
+    }
     return ReorderResult(
-      success: body['success'] as bool? ?? true,
-      message: body['message'] as String? ?? 'Items added for reorder.',
-      itemCount: (data['itemCount'] as num?)?.toInt() ??
-          (data['item_count'] as num?)?.toInt() ??
-          items.length,
-      warnings: warnings,
+      success: true,
+      message: message,
+      itemCount: added,
+      warnings: unavailable,
     );
   }
 

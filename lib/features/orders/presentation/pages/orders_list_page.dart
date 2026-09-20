@@ -8,6 +8,8 @@ import '../../../../repositories/repositories.dart';
 import '../../../../shared/widgets/shared_widgets.dart';
 import '../../../home/presentation/providers/home_providers.dart';
 import '../widgets/invoice_actions.dart';
+import '../../../../core/network/friendly_error.dart';
+import '../../../cart/presentation/providers/cart_providers.dart';
 
 class OrdersListPage extends ConsumerStatefulWidget {
   const OrdersListPage({super.key});
@@ -103,7 +105,7 @@ class _OrdersListPageState extends ConsumerState<OrdersListPage>
                 itemBuilder: (_, __) => const AppSkeletonCard(height: 110),
               ),
               error: (err, __) => AppErrorWidget(
-                message: err.toString(),
+                message: friendlyError(err),
                 onRetry: () => ref.invalidate(activeOrdersProvider),
               ),
             ),
@@ -149,7 +151,7 @@ class _OrdersListPageState extends ConsumerState<OrdersListPage>
                 itemBuilder: (_, __) => const AppSkeletonCard(height: 110),
               ),
               error: (err, __) => AppErrorWidget(
-                message: err.toString(),
+                message: friendlyError(err),
                 onRetry: () => ref.invalidate(pastOrdersProvider),
               ),
             ),
@@ -238,7 +240,7 @@ class _ActiveOrderTileState extends ConsumerState<_ActiveOrderTile> {
           }
         }).catchError((Object e) {
           if (mounted) {
-            AppSnackBar.showError(context, 'Failed to cancel: ${e.toString()}');
+            AppSnackBar.showError(context, 'Failed to cancel: ${friendlyError(e)}');
           }
         }).whenComplete(() {
           if (mounted) setState(() => _isCancelling = false);
@@ -384,17 +386,19 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
       final repo = ref.read(customerRepositoryProvider);
       final result = await repo.reorder(widget.order.id);
       if (mounted) {
-        AppSnackBar.showSuccess(
-          context,
-          result.message,
-        );
-        ref.invalidate(activeOrdersProvider);
-        ref.invalidate(pastOrdersProvider);
-        context.go(AppRoutes.cart);
+        // Straight to the normal Checkout screen (same one a fresh booking
+        // uses) — never the legacy Cart screen. `repo.reorder` rebuilt the
+        // selection from the laundry's CURRENT services and prices.
+        await ref.read(cartStateProvider.notifier).refresh();
+        if (!mounted) return;
+        if (result.warnings.isNotEmpty) {
+          AppSnackBar.showInfo(context, result.message);
+        }
+        context.push(AppRoutes.checkout);
       }
     } catch (e) {
       if (mounted) {
-        AppSnackBar.showError(context, 'Reorder failed: ${e.toString()}');
+        AppSnackBar.showError(context, 'Reorder failed: ${friendlyError(e)}');
       }
     } finally {
       if (mounted) setState(() => _isReordering = false);

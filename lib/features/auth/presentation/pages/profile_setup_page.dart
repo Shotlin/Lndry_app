@@ -13,6 +13,7 @@ import '../../../../core/widgets/app_loading.dart';
 import '../../../../core/widgets/app_snackbar.dart';
 import '../../../../core/utils/validators.dart';
 import '../../../../providers/auth_provider.dart';
+import '../../../../core/network/friendly_error.dart';
 
 class ProfileSetupPage extends ConsumerStatefulWidget {
   const ProfileSetupPage({super.key});
@@ -68,7 +69,7 @@ class _ProfileSetupPageState extends ConsumerState<ProfileSetupPage> {
         );
       }
     } catch (e) {
-      if (mounted) AppSnackBar.showError(context, e.toString());
+      if (mounted) AppSnackBar.showError(context, friendlyError(e));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import '../../core/network/network.dart';
 import '../../core/utils/location_service_resolver.dart';
 import '../../core/utils/resilient_location.dart';
+import '../../core/network/friendly_error.dart';
 
 /// Base type for failures during [LocationCaptureService.captureCurrentLocation].
 sealed class LocationCaptureException implements Exception {
@@ -154,7 +155,7 @@ class LocationCaptureService {
         pincode: (data['postal_code'] as String?)?.trim() ?? '',
       );
     } catch (e) {
-      debugPrint('[LocationCapture] Ola Maps reverse-geocode failed, falling back: $e');
+      debugPrint('[LocationCapture] Ola Maps reverse-geocode failed, falling back: ${friendlyError(e)}');
       return null;
     }
   }
@@ -167,7 +168,7 @@ class LocationCaptureService {
         position.longitude,
       );
     } catch (e) {
-      debugPrint('[LocationCapture] OS geocoder threw: $e');
+      debugPrint('[LocationCapture] OS geocoder threw: ${friendlyError(e)}');
       throw const ReverseGeocodeFailedException();
     }
     if (places.isEmpty) {

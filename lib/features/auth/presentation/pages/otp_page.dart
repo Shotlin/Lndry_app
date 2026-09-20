@@ -14,6 +14,7 @@ import '../../../../core/constants/app_constants.dart';
 import '../../../../core/router/app_routes.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../config/env.dart';
+import '../../../../core/network/friendly_error.dart';
 
 class OtpPage extends ConsumerStatefulWidget {
   const OtpPage({super.key});
@@ -128,7 +129,7 @@ class _OtpPageState extends ConsumerState<OtpPage> {
         AppSnackBar.showSuccess(
             context, 'A new verification code has been sent.');
     } catch (e) {
-      if (mounted) AppSnackBar.showError(context, e.toString());
+      if (mounted) AppSnackBar.showError(context, friendlyError(e));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

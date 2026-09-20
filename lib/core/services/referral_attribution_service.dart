@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'storage_service.dart';
+import '../../core/network/friendly_error.dart';
 
 /// Captures a referral code carried through a Play Store install link, so a
 /// friend who taps a shared "install LNDRY" link never has to type a code
@@ -51,7 +52,7 @@ abstract final class ReferralAttributionService {
       // No Play Services (emulator, sideload, non-Play install source), a
       // timeout, or the API genuinely has nothing to say — silently skip.
       // Manual code entry is always still available.
-      debugPrint('[LNDRY] Install referrer unavailable: $e');
+      debugPrint('[LNDRY] Install referrer unavailable: ${friendlyError(e)}');
     }
   }
 

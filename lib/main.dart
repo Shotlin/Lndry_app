@@ -14,6 +14,7 @@ import 'core/services/referral_attribution_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/widgets/order_sync_listener.dart';
 import 'providers/theme_provider.dart';
+import 'core/network/friendly_error.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,7 +40,7 @@ void main() async {
   try {
     await Firebase.initializeApp();
   } catch (e) {
-    debugPrint('[LNDRY] Firebase init skipped: $e');
+    debugPrint('[LNDRY] Firebase init skipped: ${friendlyError(e)}');
   }
 
   runApp(

@@ -6,6 +6,7 @@ import '../../../../core/design/design_system.dart';
 import '../../../../core/extensions/extensions.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../../../repositories/repositories.dart';
+import '../../../../core/network/friendly_error.dart';
 
 class MyReviewsPage extends ConsumerStatefulWidget {
   const MyReviewsPage({super.key});
@@ -95,7 +96,7 @@ class _MyReviewsPageState extends ConsumerState<MyReviewsPage> {
       await _loadReviews();
       if (mounted) AppSnackBar.showSuccess(context, 'Review updated.');
     } catch (e) {
-      if (mounted) AppSnackBar.showError(context, e.toString());
+      if (mounted) AppSnackBar.showError(context, friendlyError(e));
     } finally {
       controller.dispose();
     }
@@ -116,7 +117,7 @@ class _MyReviewsPageState extends ConsumerState<MyReviewsPage> {
       await _loadReviews();
       if (mounted) AppSnackBar.showSuccess(context, 'Review deleted.');
     } catch (e) {
-      if (mounted) AppSnackBar.showError(context, e.toString());
+      if (mounted) AppSnackBar.showError(context, friendlyError(e));
     }
   }
 
