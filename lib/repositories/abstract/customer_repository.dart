@@ -43,6 +43,12 @@ abstract interface class CustomerRepository {
   Future<List<ServiceModel>> getServicesByVendor(String vendorId);
 
   // ── Cart ──────────────────────────────────────────────────────────────────
+  // Carts are kept PER VENDOR. `getCart()` / `clearCart()` act on the vendor
+  // whose cart is currently in play ([activeCartVendorId]) — the one being
+  // viewed or checked out — so a different vendor never inherits its items.
+  // `addToCart` makes the vendor it adds to the active one.
+  String? get activeCartVendorId;
+  void setActiveCartVendor(String? vendorId);
   Future<CartModel> getCart();
   Future<CartModel> addToCart(
       {required String serviceId,

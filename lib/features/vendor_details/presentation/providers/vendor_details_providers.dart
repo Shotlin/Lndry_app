@@ -39,23 +39,32 @@ class VendorCartState {
 }
 
 class VendorCartNotifier extends StateNotifier<VendorCartState> {
-  VendorCartNotifier(this._repo, this._ref)
+  VendorCartNotifier(this._repo, this._ref, this._vendorId)
       : super(const VendorCartState(items: [], services: []));
 
   final CustomerRepository _repo;
   final Ref _ref;
-  String _vendorId = '';
+
+  /// The vendor this cart belongs to — fixed for the life of the notifier.
+  final String _vendorId;
 
   Future<void> init(String vendorId, {bool includeCart = true}) async {
-    _vendorId = vendorId;
+    // This vendor's cart is the one in play from here on (Checkout and the
+    // Cart screen read the vendor in play).
+    _repo.setActiveCartVendor(vendorId);
     final list = await _repo.getServicesByVendor(vendorId);
     final filteredItems = <CartItem>[];
 
     if (includeCart) {
       final cart = await _repo.getCart();
+      // Only THIS vendor's lines. Matching on the service id alone would pull
+      // in another vendor's cart, because many vendors offer the same garment
+      // type (same id).
       final svcIds = list.map((s) => s.id).toSet();
       filteredItems.addAll(
-        cart.items.where((i) => svcIds.contains(i.serviceId)),
+        cart.items.where(
+          (i) => i.vendorId == vendorId && svcIds.contains(i.serviceId),
+        ),
       );
     }
 
@@ -66,6 +75,8 @@ class VendorCartNotifier extends StateNotifier<VendorCartState> {
   }
 
   Future<void> updateQuantity(String serviceId, int delta) async {
+    // Returning to an earlier vendor screen: act on THIS vendor's cart.
+    _repo.setActiveCartVendor(_vendorId);
     final updatedItems = List<CartItem>.from(state.items);
     final idx = updatedItems.indexWhere((i) => i.serviceId == serviceId);
 
@@ -109,9 +120,10 @@ class VendorCartNotifier extends StateNotifier<VendorCartState> {
   }
 }
 
-final vendorCartProvider =
-    StateNotifierProvider.autoDispose<VendorCartNotifier, VendorCartState>(
-        (ref) {
+/// One cart notifier per vendor — vendor A's screen and vendor B's screen never
+/// share a selected-service list.
+final vendorCartProvider = StateNotifierProvider.autoDispose
+    .family<VendorCartNotifier, VendorCartState, String>((ref, vendorId) {
   final repo = ref.watch(customerRepositoryProvider);
-  return VendorCartNotifier(repo, ref);
+  return VendorCartNotifier(repo, ref, vendorId);
 });

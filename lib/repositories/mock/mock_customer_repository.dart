@@ -158,7 +158,18 @@ class MockCustomerRepository implements CustomerRepository {
 
   // ── Cart ──────────────────────────────────────────────────────────────────
 
-  final List<CartItem> _cartItems = [];
+  // One cart per vendor — see ApiCustomerRepository.
+  final Map<String, List<CartItem>> _cartsByVendor = {};
+  String? _activeCartVendorId;
+
+  @override
+  String? get activeCartVendorId => _activeCartVendorId;
+
+  @override
+  void setActiveCartVendor(String? vendorId) {
+    _activeCartVendorId =
+        (vendorId == null || vendorId.isEmpty) ? null : vendorId;
+  }
 
   @override
   Future<CartModel> getCart() async {
@@ -173,27 +184,29 @@ class MockCustomerRepository implements CustomerRepository {
     required int quantity,
   }) async {
     await _delay(fast: true);
-    final existing = _cartItems.indexWhere((i) => i.serviceId == serviceId);
+    final items = _cartsByVendor.putIfAbsent(vendorId, () => []);
+    final existing = items.indexWhere((i) => i.serviceId == serviceId);
     if (existing >= 0) {
-      _cartItems[existing] = _cartItems[existing].copyWith(
-        quantity: _cartItems[existing].quantity + quantity,
-        vendorId: vendorId,
-      );
+      items[existing] = items[existing]
+          .copyWith(quantity: items[existing].quantity + quantity);
     } else {
-      _cartItems.add(CartItem(
-        id: 'ci_${DateTime.now().millisecondsSinceEpoch}',
+      items.add(CartItem(
+        id: 'ci_${vendorId}_$serviceId',
         serviceId: serviceId,
         vendorId: vendorId,
         quantity: quantity,
       ));
     }
+    _activeCartVendorId = vendorId;
     return _buildCart();
   }
 
   @override
   Future<CartModel> removeFromCart(String cartItemId) async {
     await _delay(fast: true);
-    _cartItems.removeWhere((i) => i.id == cartItemId);
+    for (final items in _cartsByVendor.values) {
+      items.removeWhere((i) => i.id == cartItemId);
+    }
     return _buildCart();
   }
 
@@ -204,19 +217,27 @@ class MockCustomerRepository implements CustomerRepository {
   }) async {
     await _delay(fast: true);
     if (quantity <= 0) return removeFromCart(cartItemId);
-    final idx = _cartItems.indexWhere((i) => i.id == cartItemId);
-    if (idx >= 0) {
-      _cartItems[idx] = _cartItems[idx].copyWith(quantity: quantity);
+    for (final items in _cartsByVendor.values) {
+      final idx = items.indexWhere((i) => i.id == cartItemId);
+      if (idx >= 0) {
+        items[idx] = items[idx].copyWith(quantity: quantity);
+        break;
+      }
     }
     return _buildCart();
   }
 
   @override
   Future<void> clearCart() async {
-    _cartItems.clear();
+    final id = _activeCartVendorId;
+    if (id != null) _cartsByVendor[id]?.clear();
   }
 
-  CartModel _buildCart() => CartModel(items: List.unmodifiable(_cartItems));
+  CartModel _buildCart() {
+    final id = _activeCartVendorId;
+    final items = id == null ? const <CartItem>[] : (_cartsByVendor[id] ?? const <CartItem>[]);
+    return CartModel(items: List.unmodifiable(items));
+  }
 
   // ── Orders ────────────────────────────────────────────────────────────────
 

@@ -173,3 +173,44 @@ final cartMilestoneTiersProvider =
   final repo = ref.watch(customerRepositoryProvider);
   return repo.getActiveCartMilestoneTiers();
 });
+
+// ── Pickup selection (per vendor) ─────────────────────────────────────────────
+
+/// The pickup slot a customer picked for ONE vendor, kept so it can travel from
+/// the vendor's screen into Checkout. It always carries the vendor it belongs
+/// to: a slot chosen for vendor A is never applied to vendor B's checkout.
+class PickupSelection {
+  const PickupSelection({
+    required this.vendorId,
+    required this.date,
+    required this.slotId,
+    required this.startTime,
+    required this.endTime,
+    this.label,
+  });
+
+  final String vendorId;
+
+  /// The calendar day, `yyyy-MM-dd`.
+  final String date;
+  final String slotId;
+  final String startTime;
+  final String endTime;
+  final String? label;
+}
+
+/// vendorId → that vendor's chosen pickup slot.
+final pickupSelectionProvider =
+    StateProvider<Map<String, PickupSelection>>((ref) => const {});
+
+extension PickupSelectionStore on WidgetRef {
+  /// Remembers [selection] for its vendor (replacing any earlier one).
+  void rememberPickupSelection(PickupSelection selection) {
+    final current = read(pickupSelectionProvider);
+    read(pickupSelectionProvider.notifier).state = {
+      ...current,
+      selection.vendorId: selection,
+    };
+  }
+}
+

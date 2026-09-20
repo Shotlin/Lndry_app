@@ -27,7 +27,11 @@ class ApiCustomerRepository implements CustomerRepository {
 
   final Dio _dio;
   final StorageService _storage;
-  final List<CartItem> _localCartItems = <CartItem>[];
+  // One cart per vendor. A cart line is identified by (vendor, service): the
+  // same garment type is offered by many vendors, so the service id alone can
+  // never decide which vendor's cart a line belongs to.
+  final Map<String, List<CartItem>> _cartsByVendor = <String, List<CartItem>>{};
+  String? _activeCartVendorId;
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -322,11 +326,26 @@ class ApiCustomerRepository implements CustomerRepository {
 
   // ── Cart (server-side cart is commented out in backend; use local cart) ─────
   // The backend cart module is commented out (`// await app.register(import(...cart))`)
-  // so we keep the existing mock/local cart for now.
+  // so the cart is kept locally — but strictly per vendor (see above).
+
+  @override
+  String? get activeCartVendorId => _activeCartVendorId;
+
+  @override
+  void setActiveCartVendor(String? vendorId) {
+    _activeCartVendorId =
+        (vendorId == null || vendorId.isEmpty) ? null : vendorId;
+  }
+
+  List<CartItem> _activeItems() {
+    final id = _activeCartVendorId;
+    if (id == null) return const <CartItem>[];
+    return _cartsByVendor[id] ?? const <CartItem>[];
+  }
 
   @override
   Future<CartModel> getCart() async => CartModel(
-        items: List<CartItem>.unmodifiable(_localCartItems),
+        items: List<CartItem>.unmodifiable(_activeItems()),
       );
 
   @override
@@ -335,28 +354,32 @@ class ApiCustomerRepository implements CustomerRepository {
     required String vendorId,
     required int quantity,
   }) async {
-    final idx =
-        _localCartItems.indexWhere((item) => item.serviceId == serviceId);
+    if (vendorId.isEmpty) {
+      throw StateError('A cart line must belong to a vendor.');
+    }
+    final items = _cartsByVendor.putIfAbsent(vendorId, () => <CartItem>[]);
+    final idx = items.indexWhere((item) => item.serviceId == serviceId);
     if (idx >= 0) {
-      final current = _localCartItems[idx];
-      _localCartItems[idx] = current.copyWith(
-        quantity: current.quantity + quantity,
-        vendorId: vendorId,
-      );
+      items[idx] =
+          items[idx].copyWith(quantity: items[idx].quantity + quantity);
     } else {
-      _localCartItems.add(CartItem(
-        id: 'local_$serviceId',
+      items.add(CartItem(
+        id: 'local_${vendorId}_$serviceId',
         serviceId: serviceId,
         vendorId: vendorId,
         quantity: quantity,
       ));
     }
+    // Adding to a vendor's cart makes it the one in play.
+    _activeCartVendorId = vendorId;
     return getCart();
   }
 
   @override
   Future<CartModel> removeFromCart(String cartItemId) async {
-    _localCartItems.removeWhere((item) => item.id == cartItemId);
+    for (final items in _cartsByVendor.values) {
+      items.removeWhere((item) => item.id == cartItemId);
+    }
     return getCart();
   }
 
@@ -366,16 +389,21 @@ class ApiCustomerRepository implements CustomerRepository {
     required int quantity,
   }) async {
     if (quantity <= 0) return removeFromCart(cartItemId);
-    final idx = _localCartItems.indexWhere((item) => item.id == cartItemId);
-    if (idx >= 0) {
-      _localCartItems[idx] = _localCartItems[idx].copyWith(quantity: quantity);
+    for (final items in _cartsByVendor.values) {
+      final idx = items.indexWhere((item) => item.id == cartItemId);
+      if (idx >= 0) {
+        items[idx] = items[idx].copyWith(quantity: quantity);
+        break;
+      }
     }
     return getCart();
   }
 
   @override
   Future<void> clearCart() async {
-    _localCartItems.clear();
+    // Only the vendor in play — other vendors' carts are left alone.
+    final id = _activeCartVendorId;
+    if (id != null) _cartsByVendor[id]?.clear();
   }
 
   // ── Orders ───────────────────────────────────────────────────────────────────
@@ -1313,9 +1341,11 @@ class ApiCustomerRepository implements CustomerRepository {
       );
     }
 
-    // The selection buffer that Checkout reads becomes exactly this reorder:
-    // whatever was left in it from earlier browsing is dropped, so Checkout
-    // prices what the customer asked to repeat — nothing more, nothing stale.
+    // The cart Checkout reads becomes exactly this reorder: this vendor's
+    // cart is put in play and whatever was left in IT from earlier browsing is
+    // dropped, so Checkout prices what the customer asked to repeat — nothing
+    // more, nothing stale. Other vendors' carts are untouched.
+    setActiveCartVendor(vendorId);
     await clearCart();
     var added = 0;
     for (final item in items) {

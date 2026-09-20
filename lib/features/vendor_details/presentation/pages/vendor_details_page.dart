@@ -77,32 +77,73 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
     return order.map((id) => groups[id]!).toList();
   }
 
+  String _dateString(DateTime day) =>
+      '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+
+  bool get _selectedDateIsTomorrow =>
+      _selectedDate == _dateString(DateTime.now().add(const Duration(days: 1)));
+
+  /// Remembers the current choice for THIS vendor so Checkout can start from it.
+  void _rememberSelection() {
+    final slot = _selectedSlot;
+    if (slot == null || _selectedDate.isEmpty) return;
+    ref.rememberPickupSelection(PickupSelection(
+      vendorId: widget.vendorId,
+      date: _selectedDate,
+      slotId: slot.id,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      label: slot.label,
+    ));
+  }
+
   Future<void> _loadPickupSlots() async {
     final repo = ref.read(customerRepositoryProvider);
     final today = DateTime.now();
-    final dateStr =
-        '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
     setState(() {
       _slotsLoading = true;
       _slotsError = false;
-      _selectedDate = dateStr;
     });
 
     try {
-      final slots = await repo.getPickupSlots(
+      // Only THIS vendor's slots. If it has none today (closed, or every slot
+      // is full/over) offer tomorrow's rather than a dead end.
+      var dateStr = _dateString(today);
+      var slots = await repo.getPickupSlots(
         vendorId: widget.vendorId,
         date: dateStr,
       );
-      if (mounted) {
-        setState(() {
-          _availableSlots = slots;
-          if (_selectedSlot == null && slots.isNotEmpty) {
-            _selectedSlot = slots.first;
-          }
-          _slotsLoading = false;
-        });
+      if (slots.isEmpty) {
+        final tomorrowStr = _dateString(today.add(const Duration(days: 1)));
+        final tomorrowSlots = await repo.getPickupSlots(
+          vendorId: widget.vendorId,
+          date: tomorrowStr,
+        );
+        if (tomorrowSlots.isNotEmpty) {
+          dateStr = tomorrowStr;
+          slots = tomorrowSlots;
+        }
       }
+      if (!mounted) return;
+
+      // A slot remembered for this vendor stays selected while it is still
+      // offered; otherwise fall back to the first one.
+      final remembered =
+          ref.read(pickupSelectionProvider)[widget.vendorId];
+      PickupSlot? keep;
+      if (remembered != null && remembered.date == dateStr) {
+        for (final slot in slots) {
+          if (slot.id == remembered.slotId) keep = slot;
+        }
+      }
+      setState(() {
+        _selectedDate = dateStr;
+        _availableSlots = slots;
+        _selectedSlot = keep ?? (slots.isNotEmpty ? slots.first : null);
+        _slotsLoading = false;
+      });
+      _rememberSelection();
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -117,6 +158,10 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
     AppBottomSheet.show<void>(
       context: context,
       title: 'Select pickup slot',
+      // The list scrolls inside a height-capped sheet, so every slot is
+      // reachable on a small screen and the last one is never cut off.
+      isScrollControlled: true,
+      scrollableChild: true,
       child: _slotsLoading
           ? const Center(
               child: Padding(
@@ -161,6 +206,7 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
                     )
                   : ListView.separated(
                       shrinkWrap: true,
+                      padding: EdgeInsets.only(bottom: 12.h),
                       itemCount: _availableSlots.length,
                       separatorBuilder: (_, __) => const Gap(8),
                       itemBuilder: (context, idx) {
@@ -177,6 +223,7 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
                               : AppColors.transparent,
                           onTap: () {
                             setState(() => _selectedSlot = slot);
+                            _rememberSelection();
                             Navigator.of(context).pop();
                           },
                           child: Row(
@@ -198,7 +245,8 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
 
   String _slotLabel(PickupSlot slot) {
     final part = slot.label != null ? '${slot.label} • ' : '';
-    return '$part${AppDateUtils.formatTimeRange(slot.startTime, slot.endTime)}';
+    final day = _selectedDateIsTomorrow ? 'Tomorrow • ' : '';
+    return '$day$part${AppDateUtils.formatTimeRange(slot.startTime, slot.endTime)}';
   }
 
   String _deliveryEstimate() {
@@ -228,7 +276,7 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
     try {
       final v = await repo.getVendorById(widget.vendorId);
       final reviewsFuture = repo.getVendorReviews(widget.vendorId);
-      await ref.read(vendorCartProvider.notifier).init(
+      await ref.read(vendorCartProvider(widget.vendorId).notifier).init(
             widget.vendorId,
             includeCart: ref.read(authProvider) is AuthAuthenticated,
           );
@@ -269,7 +317,7 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
       context: context,
       ref: ref,
       action: (_, ref) => ref
-          .read(vendorCartProvider.notifier)
+          .read(vendorCartProvider(widget.vendorId).notifier)
           .updateQuantity(serviceId, delta),
     );
   }
@@ -281,7 +329,7 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
     // frame — otherwise it gets torn down (losing the services/cart data
     // _loadVendorData() just fetched) in the gap between initState()'s
     // ref.read(...).init() call and this widget's first real build.
-    final cartState = ref.watch(vendorCartProvider);
+    final cartState = ref.watch(vendorCartProvider(widget.vendorId));
 
     if (_isLoading) {
       return Scaffold(
@@ -966,6 +1014,12 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
                         ref: ref,
                         returnTo: currentRouteLocation(context),
                         action: (context, ref) async {
+                          // Checkout uses THIS vendor's cart and pickup choice
+                          // only — put them in play before opening it.
+                          ref
+                              .read(customerRepositoryProvider)
+                              .setActiveCartVendor(widget.vendorId);
+                          _rememberSelection();
                           await ref.read(cartStateProvider.notifier).refresh();
                           if (!context.mounted) return;
                           context.push(AppRoutes.checkout);

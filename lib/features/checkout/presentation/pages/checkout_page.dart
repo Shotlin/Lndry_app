@@ -162,6 +162,9 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
           );
           _selectedSlot = _isApiMode ? null : _slots.first;
           _isLoading = false;
+          // Start from the pickup slot the customer already chose on THIS
+          // vendor's screen, if any.
+          if (_isApiMode) _applyRememberedPickup();
         });
         if (_isApiMode) {
           unawaited(_loadPickupSlots());
@@ -312,6 +315,30 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
     } else {
       unawaited(_loadBackendPrices());
     }
+  }
+
+  /// Carries the slot chosen on the vendor's screen into this checkout —
+  /// only when it was chosen for the SAME vendor whose cart this is, and only
+  /// for a day the checkout offers (Today / Tomorrow). Call inside setState.
+  void _applyRememberedPickup() {
+    final vendorId = _cartVendorId(ref.read(cartStateProvider));
+    if (vendorId == null) return;
+    final remembered = ref.read(pickupSelectionProvider)[vendorId];
+    if (remembered == null || remembered.vendorId != vendorId) return;
+
+    String day(DateTime d) =>
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    final now = DateTime.now();
+    final int? dateIdx = remembered.date == day(now)
+        ? 0
+        : remembered.date == day(now.add(const Duration(days: 1)))
+            ? 1
+            : null;
+    if (dateIdx == null) return;
+
+    _pickupTimeMode = _PickupTimeMode.schedule;
+    _selectedDateIdx = dateIdx;
+    _selectedSlot = remembered.slotId;
   }
 
   Future<void> _loadPickupSlots() async {
