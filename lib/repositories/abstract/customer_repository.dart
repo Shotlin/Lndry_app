@@ -274,9 +274,19 @@ abstract interface class CustomerRepository {
     required String platform,
     required String fcmToken,
     String? appVersion,
+    String? deviceModel,
   });
 
-  Future<void> unregisterDevice(String deviceId);
+  /// Detach this device from the signed-in user (logout) so it stops
+  /// receiving that user's notifications.
+  Future<void> unregisterDevice(String deviceId, {String? fcmToken});
+
+  /// The user tapped a push notification (feeds the campaign's open rate).
+  Future<void> reportNotificationOpened({
+    String? deliveryId,
+    String? notificationId,
+    String? campaignId,
+  });
 
   // ── Notification Preferences ────────────────────────────────────────────────
   Future<NotificationPreferences> getNotificationPreferences();

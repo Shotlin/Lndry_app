@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
@@ -354,10 +355,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
   // ── Logout ────────────────────────────────────────────────────────────────
 
   Future<void> logout() async {
+    await _tokenRefreshSub?.cancel();
+    _tokenRefreshSub = null;
+    // Detach this device while the session is still valid, then drop the FCM
+    // token so this phone stops receiving the signed-out user's notifications
+    // (a fresh token is issued for whoever signs in next).
     final deviceId = _storage.getString('device_id');
     if (deviceId != null && deviceId.isNotEmpty) {
+      String? token;
       try {
-        await _repo.unregisterDevice(deviceId);
+        token = await FirebaseMessaging.instance
+            .getToken()
+            .timeout(const Duration(seconds: 3));
+      } catch (_) {}
+      try {
+        await _repo.unregisterDevice(deviceId, fcmToken: token);
+      } catch (_) {}
+      try {
+        await FirebaseMessaging.instance
+            .deleteToken()
+            .timeout(const Duration(seconds: 3));
       } catch (_) {}
     }
     try {
@@ -450,19 +467,47 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> _registerDeviceIfPossible() async {
     try {
       final messaging = FirebaseMessaging.instance;
-      await messaging.requestPermission();
+      // Never prompt from here — the permission prompter owns that. Without
+      // permission there is nothing to deliver to, so wait until it is granted
+      // (it calls syncPushToken right after the user allows).
+      final settings = await messaging.getNotificationSettings();
+      if (settings.authorizationStatus != AuthorizationStatus.authorized &&
+          settings.authorizationStatus != AuthorizationStatus.provisional) {
+        return;
+      }
       final token = await messaging.getToken();
       if (token == null || token.isEmpty) return;
 
+      await _sendFcmToken(token);
+      // Firebase rotates tokens; keep the backend's copy current.
+      _tokenRefreshSub ??= messaging.onTokenRefresh.listen(_sendFcmToken);
+    } catch (_) {
+      // Firebase config is optional for local/dev builds; auth must continue.
+    }
+  }
+
+  StreamSubscription<String>? _tokenRefreshSub;
+
+  /// Register / refresh this device's FCM token with the backend now (called
+  /// right after the user allows notifications). A signed-out user is
+  /// registered at login instead.
+  Future<void> syncPushToken() async {
+    if (state is AuthUnauthenticated || state is AuthInitial) return;
+    await _registerDeviceIfPossible();
+  }
+
+  Future<void> _sendFcmToken(String token) async {
+    try {
+      // Signed out: nothing to register (it is sent again at login).
+      if (state is AuthUnauthenticated || state is AuthInitial) return;
       final deviceId = await _getOrCreateDeviceId();
       await _repo.registerDevice(
         deviceId: deviceId,
         platform: _platformString,
         fcmToken: token,
+        deviceModel: await _getDeviceModel(),
       );
-    } catch (_) {
-      // Firebase config is optional for local/dev builds; auth must continue.
-    }
+    } catch (_) {}
   }
 }
 

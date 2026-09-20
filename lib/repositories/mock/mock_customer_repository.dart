@@ -1126,14 +1126,22 @@ class MockCustomerRepository implements CustomerRepository {
     required String platform,
     required String fcmToken,
     String? appVersion,
+    String? deviceModel,
   }) async {
     await _delay(fast: true);
   }
 
   @override
-  Future<void> unregisterDevice(String deviceId) async {
+  Future<void> unregisterDevice(String deviceId, {String? fcmToken}) async {
     await _delay(fast: true);
   }
+
+  @override
+  Future<void> reportNotificationOpened({
+    String? deliveryId,
+    String? notificationId,
+    String? campaignId,
+  }) async {}
 
   @override
   Future<SupportContact> getSupportContact() async {

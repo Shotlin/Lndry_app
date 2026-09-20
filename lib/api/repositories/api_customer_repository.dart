@@ -3,6 +3,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'package:dio/dio.dart';
+import '../../core/notifications/notification_target.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/network/network.dart';
@@ -1505,7 +1506,7 @@ class ApiCustomerRepository implements CustomerRepository {
         title: json['title'] as String? ?? '',
         body: json['body'] as String? ?? '',
         imageUrl: json['image_url'] as String?,
-        deepLink: json['deep_link'] as String?,
+        deepLink: _inboxRoute(json),
         isRead: json['is_read'] as bool? ?? false,
         createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
             DateTime.now(),
@@ -1534,23 +1535,54 @@ class ApiCustomerRepository implements CustomerRepository {
     required String platform,
     required String fcmToken,
     String? appVersion,
+    String? deviceModel,
   }) async {
-    // /devices is a real endpoint but writes to a table never read by the
-    // push-send path (NotificationsRepository.getFcmTokens reads only
-    // fcm_tokens, populated by /notifications/tokens) — this was silently
-    // making every push notification a no-op.
+    // /notifications/tokens is what the push sender reads (the older /devices
+    // endpoint writes to a table it never looks at). One row per device: the
+    // same physical device re-registering replaces its previous token.
     await _dio.post(
       ApiEndpoints.registerDeviceToken,
       data: {
         'token': fcmToken,
         'platform': platform,
+        'app_type': 'customer',
+        'device_id': deviceId,
+        if (deviceModel != null && deviceModel.isNotEmpty)
+          'device_model': deviceModel,
+        if (appVersion != null && appVersion.isNotEmpty)
+          'app_version': appVersion,
       },
     );
   }
 
   @override
-  Future<void> unregisterDevice(String deviceId) async {
-    await _dio.delete(ApiEndpoints.deviceById(deviceId));
+  Future<void> unregisterDevice(String deviceId, {String? fcmToken}) async {
+    await _dio.post(
+      ApiEndpoints.unregisterDeviceToken,
+      data: {
+        'device_id': deviceId,
+        if (fcmToken != null && fcmToken.isNotEmpty) 'token': fcmToken,
+      },
+    );
+  }
+
+  @override
+  Future<void> reportNotificationOpened({
+    String? deliveryId,
+    String? notificationId,
+    String? campaignId,
+  }) async {
+    if (deliveryId == null && notificationId == null && campaignId == null) {
+      return;
+    }
+    await _dio.post(
+      ApiEndpoints.notificationOpened,
+      data: {
+        if (deliveryId != null) 'delivery_id': deliveryId,
+        if (notificationId != null) 'notification_id': notificationId,
+        if (campaignId != null) 'campaign_id': campaignId,
+      },
+    );
   }
 
   @override
@@ -1990,3 +2022,18 @@ final apiCustomerRepositoryProvider = Provider<ApiCustomerRepository>((ref) {
   final storage = ref.watch(storageServiceProvider);
   return ApiCustomerRepository(dio: dio, storage: storage);
 });
+
+/// The screen an inbox item opens, from the logical link the backend stored on
+/// it (`data.link = {type, params}`). Null for older items that have none.
+String? _inboxRoute(Map<String, dynamic> json) {
+  final explicit = json['deep_link'];
+  if (explicit is String && explicit.isNotEmpty) return explicit;
+  final data = json['data'];
+  final link = data is Map ? data['link'] : null;
+  if (link is! Map) return null;
+  final params = <String, String>{
+    for (final e in (link["params"] is Map ? link["params"] as Map : const <dynamic, dynamic>{}).entries)
+      e.key.toString(): e.value.toString(),
+  };
+  return NotificationRoutes.forLink(link['type']?.toString() ?? '', params);
+}

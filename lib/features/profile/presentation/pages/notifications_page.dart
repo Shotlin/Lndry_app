@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/design/design_system.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../../../core/extensions/extensions.dart';
+import '../../../../core/notifications/notification_router.dart';
+import '../../../../core/notifications/notifications_off_banner.dart';
 import '../../../../core/router/app_routes.dart';
 import '../../../../models/models.dart';
 import '../../../../repositories/repositories.dart';
@@ -104,115 +106,129 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
             ),
         ],
       ),
-      body: SafeArea(
-        child: _isLoading
-            ? const AppLoadingPage(message: 'Loading updates...')
-            : _notifications.isEmpty
-                ? const AppEmptyState(
-                    icon: AppIcons.notificationsOutlined,
-                    title: 'All Caught Up!',
-                    subtitle:
-                        'You don\'t have any new laundry order updates or coupon notices currently.',
-                  )
-                : RefreshIndicator(
-                    onRefresh: () async => _loadNotifications(),
-                    child: ListView.separated(
-                      padding: EdgeInsets.all(AppSpacing.pagePaddingH.w),
-                      itemCount: _notifications.length,
-                      separatorBuilder: (_, __) => Gap(AppSpacing.cardGap.h),
-                      itemBuilder: (context, idx) {
-                        final notif = _notifications[idx];
+      body: Column(
+        children: [
+          const NotificationsOffBanner(),
+          Expanded(
+            child: SafeArea(
+              child: _isLoading
+                  ? const AppLoadingPage(message: 'Loading updates...')
+                  : _notifications.isEmpty
+                      ? const AppEmptyState(
+                          icon: AppIcons.notificationsOutlined,
+                          title: 'All Caught Up!',
+                          subtitle:
+                              'You don\'t have any new laundry order updates or coupon notices currently.',
+                        )
+                      : RefreshIndicator(
+                          onRefresh: () async => _loadNotifications(),
+                          child: ListView.separated(
+                            padding: EdgeInsets.all(AppSpacing.pagePaddingH.w),
+                            itemCount: _notifications.length,
+                            separatorBuilder: (_, __) =>
+                                Gap(AppSpacing.cardGap.h),
+                            itemBuilder: (context, idx) {
+                              final notif = _notifications[idx];
 
-                        return Dismissible(
-                          key: ValueKey(notif.id),
-                          direction: DismissDirection.endToStart,
-                          background: Container(
-                            alignment: Alignment.centerRight,
-                            padding: EdgeInsets.only(right: 20.w),
-                            decoration: BoxDecoration(
-                              color: AppColors.error.withValues(alpha: 0.12),
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.card.r),
-                            ),
-                            child: const Icon(
-                              AppIcons.delete,
-                              color: AppColors.error,
-                            ),
-                          ),
-                          onDismissed: (_) => _deleteNotification(notif),
-                          child: AppCard.outlined(
-                            onTap: () {
-                              if (!notif.isRead) _onMarkAsRead(notif);
-                              if (notif.deepLink != null &&
-                                  notif.deepLink!.isNotEmpty) {
-                                context.push(notif.deepLink!);
-                              }
-                            },
-                            borderColor: notif.isRead
-                                ? AppColors.outline
-                                : AppColors.primary.withValues(alpha: 0.3),
-                            backgroundColor: notif.isRead
-                                ? AppColors.transparent
-                                : AppColors.primaryContainer.withValues(alpha: 0.08),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  padding: EdgeInsets.all(8.r),
+                              return Dismissible(
+                                key: ValueKey(notif.id),
+                                direction: DismissDirection.endToStart,
+                                background: Container(
+                                  alignment: Alignment.centerRight,
+                                  padding: EdgeInsets.only(right: 20.w),
                                   decoration: BoxDecoration(
-                                    color: notif.isRead
-                                        ? AppColors.surfaceContainerHighest
-                                        : AppColors.primaryContainer,
-                                    shape: BoxShape.circle,
+                                    color:
+                                        AppColors.error.withValues(alpha: 0.12),
+                                    borderRadius:
+                                        BorderRadius.circular(AppRadius.card.r),
                                   ),
-                                  child: Icon(
-                                    AppIcons.notificationsOutlined,
-                                    color: notif.isRead
-                                        ? AppColors.onSurfaceVariant
-                                        : AppColors.primary,
-                                    size: 18.r,
+                                  child: const Icon(
+                                    AppIcons.delete,
+                                    color: AppColors.error,
                                   ),
                                 ),
-                                Gap(AppSpacing.cardGap.w),
-                                Expanded(
-                                  child: Column(
+                                onDismissed: (_) => _deleteNotification(notif),
+                                child: AppCard.outlined(
+                                  onTap: () {
+                                    if (!notif.isRead) _onMarkAsRead(notif);
+                                    // Same guard + sign-in handling as a real push tap.
+                                    ref
+                                        .read(notificationRouterProvider)
+                                        .openRoute(notif.deepLink);
+                                  },
+                                  borderColor: notif.isRead
+                                      ? AppColors.outline
+                                      : AppColors.primary
+                                          .withValues(alpha: 0.3),
+                                  backgroundColor: notif.isRead
+                                      ? AppColors.transparent
+                                      : AppColors.primaryContainer
+                                          .withValues(alpha: 0.08),
+                                  child: Row(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        notif.title,
-                                        style:
-                                            AppTypography.labelLarge.copyWith(
-                                          fontWeight: notif.isRead
-                                              ? FontWeight.normal
-                                              : FontWeight.bold,
+                                      Container(
+                                        padding: EdgeInsets.all(8.r),
+                                        decoration: BoxDecoration(
+                                          color: notif.isRead
+                                              ? AppColors
+                                                  .surfaceContainerHighest
+                                              : AppColors.primaryContainer,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          AppIcons.notificationsOutlined,
+                                          color: notif.isRead
+                                              ? AppColors.onSurfaceVariant
+                                              : AppColors.primary,
+                                          size: 18.r,
                                         ),
                                       ),
-                                      Gap(AppSpacing.xs.h),
-                                      Text(
-                                        notif.body,
-                                        style: AppTypography.bodySmall,
+                                      Gap(AppSpacing.cardGap.w),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              notif.title,
+                                              style: AppTypography.labelLarge
+                                                  .copyWith(
+                                                fontWeight: notif.isRead
+                                                    ? FontWeight.normal
+                                                    : FontWeight.bold,
+                                              ),
+                                            ),
+                                            Gap(AppSpacing.xs.h),
+                                            Text(
+                                              notif.body,
+                                              style: AppTypography.bodySmall,
+                                            ),
+                                            Gap(AppSpacing.sm.h),
+                                            Text(
+                                              notif.createdAt.timeAgo,
+                                              style: AppTypography.caption,
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                      Gap(AppSpacing.sm.h),
-                                      Text(
-                                        notif.createdAt.timeAgo,
-                                        style: AppTypography.caption,
+                                      IconButton(
+                                        tooltip: 'Delete',
+                                        icon: const Icon(AppIcons.delete),
+                                        onPressed: () =>
+                                            _deleteNotification(notif),
                                       ),
                                     ],
                                   ),
                                 ),
-                                IconButton(
-                                  tooltip: 'Delete',
-                                  icon: const Icon(AppIcons.delete),
-                                  onPressed: () => _deleteNotification(notif),
-                                ),
-                              ],
-                            ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
-                  ),
+                        ),
+            ),
+          ),
+        ],
       ),
     );
   }

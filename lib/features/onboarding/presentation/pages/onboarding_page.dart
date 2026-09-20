@@ -7,6 +7,7 @@ import '../../../../core/design/design_system.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/router/app_routes.dart';
+import '../../../../core/services/permission_prompter.dart';
 import '../../../../core/services/storage_service.dart';
 
 class OnboardingPage extends ConsumerStatefulWidget {
@@ -69,6 +70,15 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
   void _finishOnboarding() async {
     final storage = ref.read(storageServiceProvider);
     await storage.saveBool(AppConstants.keyOnboardingDone, value: true);
+    // Fresh install: the phone's own permission dialogs (notifications, then
+    // location) appear one after the other, then the app opens. Denying
+    // anything still opens the app; the wait is capped so it can never hang.
+    try {
+      await ref
+          .read(permissionPrompterProvider)
+          .runIfNeeded()
+          .timeout(const Duration(seconds: 120));
+    } catch (_) {}
     if (mounted) {
       context.go(AppRoutes.home);
     }

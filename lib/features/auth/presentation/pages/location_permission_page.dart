@@ -1,4 +1,5 @@
 import '../../../../core/constants/asset_constants.dart';
+import '../../../../core/services/device_permissions.dart';
 import '../../../../core/theme/theme.dart';
 import '../../../../providers/auth_provider.dart';
 
@@ -20,7 +21,9 @@ class _LocationPermissionPageState
 
   Future<void> _onGrantPermission() async {
     setState(() => _isLoading = true);
-    await Future<void>.delayed(const Duration(milliseconds: 1000));
+    // Raise the real system prompt (previously this only waited one second and
+    // moved on, so the permission was never actually requested).
+    await DevicePermissions.requestLocation();
 
     if (!mounted) return;
     setState(() => _isLoading = false);

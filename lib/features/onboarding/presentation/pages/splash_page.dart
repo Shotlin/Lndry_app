@@ -69,6 +69,10 @@ class _SplashPageState extends ConsumerState<SplashPage>
       return;
     }
 
+    _goToDestination(authState);
+  }
+
+  void _goToDestination(AuthState authState) {
     // GoRouter redirect handles the exact destination based on auth state.
     // We only need to leave the splash route; the router picks the rest.
     switch (authState) {

@@ -9,6 +9,7 @@ import '../../../../core/widgets/widgets.dart';
 import '../../../../models/models.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../address/address_serviceability_validator.dart';
+import '../../../address/auto_detect_address.dart';
 import '../../../address/location_capture_service.dart';
 import '../providers/home_providers.dart';
 
@@ -91,31 +92,7 @@ class _LocationCaptureSheetContentState
       }
 
       final user = ref.read(currentUserProvider);
-      final address = AddressModel(
-        id: '',
-        userId: user?.id ?? '',
-        // Deliberately blank, not `captured.line1` — that's just the
-        // GPS-reverse-geocoded street/locality name, not a real flat/house
-        // number. Auto-filling it here meant every auto-detected address
-        // silently "had" a flat number that was never actually the user's,
-        // so the checkout completeness guard could never catch it. Leave
-        // it empty; the guard sends them to fill in the real one before
-        // their first order.
-        line1: '',
-        line2: captured.formattedAddress.isNotEmpty
-            ? captured.formattedAddress
-            : null,
-        city: captured.city,
-        state: captured.state.isNotEmpty ? captured.state : captured.city,
-        pincode: captured.pincode,
-        landmark: null,
-        type: AddressType.home,
-        isDefault: true,
-        coordinates: LatLng(
-          latitude: captured.latitude,
-          longitude: captured.longitude,
-        ),
-      );
+      final address = addressFromCaptured(captured, userId: user?.id ?? '');
 
       await ref.read(authProvider.notifier).completeAddressSelection(address);
 

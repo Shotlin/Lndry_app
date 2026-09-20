@@ -67,5 +67,7 @@
 		<string>This app needs access to the microphone to perform voice searches for laundry services.</string>
 		<key>NSSpeechRecognitionUsageDescription</key>
 		<string>This app needs access to speech recognition to convert your speech into text for searching laundry services.</string>
-	</dict>
+		<key>NSLocationWhenInUseUsageDescription</key>
+	<string>LNDRY uses your location to find laundries near you and to set your pickup address.</string>
+</dict>
 </plist>

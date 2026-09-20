@@ -12,6 +12,7 @@ import 'core/theme/app_colors.dart';
 import 'core/theme/tokens/breakpoints.dart';
 import 'core/services/referral_attribution_service.dart';
 import 'core/services/storage_service.dart';
+import 'core/notifications/notification_bootstrap.dart';
 import 'core/widgets/order_sync_listener.dart';
 import 'providers/theme_provider.dart';
 import 'core/network/friendly_error.dart';
@@ -88,7 +89,9 @@ class LndryApp extends ConsumerWidget {
           builder: (context, child) {
             return OrderSyncListener(
               child: PendingAuthActionRunner(
-                child: child ?? const SizedBox.shrink(),
+                child: NotificationBootstrap(
+                  child: child ?? const SizedBox.shrink(),
+                ),
               ),
             );
           },
