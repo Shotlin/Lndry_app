@@ -15,6 +15,7 @@ import '../widgets/order_revision_sheet.dart';
 import '../widgets/payment_status_card.dart';
 import '../../../../core/network/friendly_error.dart';
 import '../../../cart/presentation/providers/cart_providers.dart';
+import '../../../checkout/presentation/providers/assisted_booking_provider.dart';
 
 /// A continuous-unit item's (kg/sq ft) real decimal quantity can't live in
 /// the INTEGER order_lines.quantity column once a rider/vendor correction
@@ -185,7 +186,14 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
       final repo = ref.read(customerRepositoryProvider);
       if (decision == ReconciliationDecision.accept) {
         await repo.acceptOrderReconciliation(widget.orderId);
-        if (mounted) AppSnackBar.showSuccess(context, 'New total accepted — processing continues.');
+        if (mounted) {
+          AppSnackBar.showSuccess(
+            context,
+            order.isAssisted
+                ? 'Services and price approved — processing continues.'
+                : 'New total accepted — processing continues.',
+          );
+        }
       } else {
         await repo.rejectOrderReconciliation(widget.orderId);
         if (mounted) {
@@ -801,6 +809,11 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
     }
 
     final order = _order!;
+    // "Book With Expert Check" wording is admin-editable (backend-driven).
+    final assistedConfig = order.isAssisted
+        ? (ref.watch(assistedBookingConfigProvider(order.vendorId)).value ??
+            AssistedBookingConfig.fallback)
+        : AssistedBookingConfig.fallback;
     final isRejected = order.status.isRejected;
     final isCancelled = order.status == OrderStatus.customerCancelled ||
         order.status == OrderStatus.adminCancelled;
@@ -973,6 +986,17 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                   Gap(AppSpacing.md.h),
                 ],
 
+                // ── Assisted booking: awaiting the laundry's inspection ────
+                // (Once the laundry has proposed services the "review" banner
+                // below takes over; after approval the normal items and
+                // pricing appear.)
+                if (order.awaitingAssessment &&
+                    order.status.isActive &&
+                    order.status != OrderStatus.reconciliationPending) ...[
+                  _AssistedAssessmentCard(config: assistedConfig),
+                  Gap(AppSpacing.md.h),
+                ],
+
                 // ── Payment status ──────────────────────────────────────────
                 PaymentStatusCard(order: order),
                 Gap(AppSpacing.md.h),
@@ -1015,12 +1039,18 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                   _Banner(
                     icon: Icons.hourglass_top_rounded,
                     color: AppColors.warning,
-                    title: 'Your order total was updated',
-                    body: 'The vendor found a difference after weighing your items. Review it to continue processing.',
+                    title: order.isAssisted
+                        ? 'Services & price ready for your approval'
+                        : 'Your order total was updated',
+                    body: order.isAssisted
+                        ? 'The laundry inspected your garments and confirmed the services and price. Review them to continue.'
+                        : 'The vendor found a difference after weighing your items. Review it to continue processing.',
                   ),
                   Gap(AppSpacing.cardGap.h),
                   AppButton(
-                    label: 'Review Updated Total',
+                    label: order.isAssisted
+                        ? 'Review Services & Price'
+                        : 'Review Updated Total',
                     isLoading: _isProcessingReconciliation,
                     isDisabled: _isProcessingReconciliation || _reconciliation == null,
                     onPressed: _showRevisionSheet,
@@ -1169,6 +1199,7 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                   Gap(AppSpacing.cardGap.h),
                   _ReevaluationStatusFlow(
                     riderDone: rider != null,
+                    showRider: !order.isAssisted,
                     pickupDone: _isPickupDone(order.status),
                     vendorDone: vendor != null,
                   ),
@@ -1204,7 +1235,10 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
                 ],
 
                 // ── Pricing summary ─────────────────────────────────────
-                if (order.total > 0) ...[
+                // Not while an assisted booking still awaits inspection: the
+                // only amounts that exist then are pickup/platform fees, which
+                // would read as a (wrong) order total.
+                if (order.total > 0 && !order.awaitingAssessment) ...[
                   PriceCard(
                     subtotal: order.subtotal,
                     // Handling fee is already baked into `total` by the
@@ -1473,6 +1507,12 @@ class _ReevaluationSection extends StatelessWidget {
     final updatedAmount = reconciliation.proposedPayableAmountPaise / 100.0;
     final (statusLabel, statusColor) = _statusInfo;
     final isVendorFinal = title.startsWith('Vendor') && reconciliation.status == 'ACCEPTED';
+    // An assisted booking's first evaluation *chooses* the services — every
+    // change is a newly added line, and the "previous amount" would only be
+    // the pickup/platform fees, which isn't a meaningful figure to compare.
+    final isServiceSelection = order.isAssisted &&
+        reconciliation.lineChanges.isNotEmpty &&
+        reconciliation.lineChanges.every((c) => c.isNew);
 
     return AppCard.outlined(
       padding: EdgeInsets.all(AppSpacing.md.r),
@@ -1527,18 +1567,20 @@ class _ReevaluationSection extends StatelessWidget {
             Gap(AppSpacing.cardGap.h),
           ],
 
+          if (!isServiceSelection) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Previous amount', style: AppTypography.bodySmall.copyWith(color: AppColors.onSurfaceVariant)),
+                Text(previousAmount.toCurrencyDecimal, style: AppTypography.bodySmall),
+              ],
+            ),
+            Gap(2.h),
+          ],
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Previous amount', style: AppTypography.bodySmall.copyWith(color: AppColors.onSurfaceVariant)),
-              Text(previousAmount.toCurrencyDecimal, style: AppTypography.bodySmall),
-            ],
-          ),
-          Gap(2.h),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Updated amount', style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold)),
+              Text(isServiceSelection ? 'Total (incl. delivery & platform charges)' : 'Updated amount', style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold)),
               Text(
                 updatedAmount.toCurrencyDecimal,
                 style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold, color: AppColors.primary),
@@ -1648,11 +1690,16 @@ class _ReevaluationStatusFlow extends StatelessWidget {
     required this.riderDone,
     required this.pickupDone,
     required this.vendorDone,
+    this.showRider = true,
   });
 
   final bool riderDone;
   final bool pickupDone;
   final bool vendorDone;
+
+  /// False for an assisted booking, where there's no captain re-evaluation —
+  /// the laundry alone inspects the garments and picks the services.
+  final bool showRider;
 
   @override
   Widget build(BuildContext context) {
@@ -1661,8 +1708,10 @@ class _ReevaluationStatusFlow extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _flowStep('Captain Re-evaluation', riderDone),
-          Gap(6.h),
+          if (showRider) ...[
+            _flowStep('Captain Re-evaluation', riderDone),
+            Gap(6.h),
+          ],
           _flowStep('Pickup', pickupDone),
           Gap(6.h),
           _flowStep('Vendor Re-evaluation', vendorDone),
@@ -1708,6 +1757,79 @@ class _ReevaluationStatusFlow extends StatelessWidget {
           style: AppTypography.bodySmall.copyWith(color: color, fontWeight: FontWeight.w600),
         ),
       ],
+    );
+  }
+}
+
+// ── Assisted booking: awaiting inspection ────────────────────────────────────
+
+/// "Laundry Assessment Required" — shown on a "Book With Expert Check" order
+/// until the laundry has inspected the garments and proposed the services.
+/// All wording comes from the admin dashboard (Categories → Assisted Booking).
+class _AssistedAssessmentCard extends StatelessWidget {
+  const _AssistedAssessmentCard({required this.config});
+
+  final AssistedBookingConfig config;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard.outlined(
+      key: const ValueKey('assisted_assessment_card'),
+      backgroundColor: AppColors.primaryContainer.withValues(alpha: 0.35),
+      borderColor: AppColors.primary.withValues(alpha: 0.3),
+      padding: EdgeInsets.all(AppSpacing.md.r),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.fact_check_outlined,
+                  size: 22.r, color: AppColors.primary),
+              Gap(AppSpacing.sm.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      config.assessmentTitle,
+                      style: AppTypography.titleSmall
+                          .copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    Gap(2.h),
+                    Text(
+                      config.assessmentMessage,
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          Gap(AppSpacing.sm.h),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Estimated service price',
+                  style: AppTypography.bodySmall
+                      .copyWith(color: AppColors.onSurfaceVariant),
+                ),
+              ),
+              Text(
+                config.priceLabel,
+                style: AppTypography.labelMedium.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

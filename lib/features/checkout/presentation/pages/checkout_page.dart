@@ -28,7 +28,18 @@ class CheckoutSession {
     this.backendTaxes,
     this.backendDiscount,
     this.backendTotal,
+    this.isAssisted = false,
+    this.assistedVendorId,
+    this.advanceAmountPaise,
   });
+
+  /// "Book With Expert Check": no services were chosen, so there is no
+  /// service price yet and the cart is not involved at all.
+  final bool isAssisted;
+  final String? assistedVendorId;
+
+  /// What is charged now (the advance), when the backend reported it.
+  final int? advanceAmountPaise;
 
   final String deliveryAddressId;
   final String pickupAddressId;
@@ -63,7 +74,12 @@ class CheckoutSession {
 enum _PickupTimeMode { anytime, schedule }
 
 class CheckoutPage extends ConsumerStatefulWidget {
-  const CheckoutPage({super.key});
+  const CheckoutPage({super.key, this.assistedVendorId});
+
+  /// Set for "Book With Expert Check": checkout for this vendor with no
+  /// services chosen (the laundry inspects the garments and sets the price
+  /// afterwards). Null for the normal cart checkout.
+  final String? assistedVendorId;
 
   @override
   ConsumerState<CheckoutPage> createState() => _CheckoutPageState();
@@ -109,6 +125,12 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
   bool _slotsLoadFailed = false;
   bool _isApiMode = false;
 
+  // ── "Book With Expert Check" (assisted booking) ───────────────────────────
+  bool get _isAssisted => (widget.assistedVendorId ?? '').isNotEmpty;
+  VendorModel? _assistedVendor;
+  AssistedBookingConfig _assistedConfig = AssistedBookingConfig.fallback;
+  int? _assistedAdvancePaise;
+
   final List<String> _slots = [
     '09:00 AM - 10:00 AM',
     '10:00 AM - 11:00 AM',
@@ -123,7 +145,8 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
     super.initState();
     _isApiMode = !Env.useMocksForVisualTestsOnly;
     _loadCheckoutData();
-    _maybeApplyPendingCoupon();
+    // Coupons don't apply to an assisted booking (no service price yet).
+    if (!_isAssisted) _maybeApplyPendingCoupon();
   }
 
   /// Picks up a coupon the customer applied from the Coupons & Offers page
@@ -143,6 +166,24 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
     setState(() => _isLoading = true);
     final repo = ref.read(customerRepositoryProvider);
     try {
+      if (_isAssisted) {
+        // Vendor name + the admin-editable wording. Best effort: the booking
+        // still works if either can't be loaded.
+        final vendorId = widget.assistedVendorId!;
+        final vendorFuture = repo.getVendorById(vendorId).then<VendorModel?>(
+              (v) => v,
+              onError: (_) => null,
+            );
+        final configFuture = repo.getAssistedBookingConfig(vendorId);
+        final vendor = await vendorFuture;
+        final config = await configFuture;
+        if (mounted) {
+          setState(() {
+            _assistedVendor = vendor;
+            _assistedConfig = config;
+          });
+        }
+      }
       final list = await repo.getAddresses();
       if (mounted) {
         setState(() {
@@ -484,6 +525,7 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
         vendorId: quoteInput.vendorId,
         vendorServiceId: quoteInput.vendorServiceId,
         garmentLines: quoteInput.lines,
+        assisted: _isAssisted,
       );
       if (quote.quoteId.isEmpty) {
         throw const FormatException('Quote creation failed.');
@@ -508,10 +550,15 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
         addressId: address.id,
         slotId: _isExpressPickup ? null : slotId,
         isExpressPickup: _isExpressPickup,
-        couponCode:
-            _couponApplied ? _couponController.text.trim().toUpperCase() : null,
+        couponCode: (!_isAssisted && _couponApplied)
+            ? _couponController.text.trim().toUpperCase()
+            : null,
       );
-      if (draft.orderDraftId.isEmpty || draft.payableAmountPaise <= 0) {
+      // An assisted booking's draft only carries pickup/platform fees (there
+      // is no service price yet), which can legitimately be zero — what is
+      // actually charged is the advance.
+      if (draft.orderDraftId.isEmpty ||
+          (!_isAssisted && draft.payableAmountPaise <= 0)) {
         throw const FormatException('Order draft is unavailable.');
       }
 
@@ -527,6 +574,8 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
         _backendDiscountReason = amounts.discountReason;
         _backendTotal = amounts.total;
         _backendExtraCharges = amounts.extraCharges;
+        _assistedAdvancePaise =
+            (draft.snapshot?['advance_amount_paise'] as num?)?.toInt();
         _backendPricesLoaded = true;
       });
       return true;
@@ -580,6 +629,14 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
   /// single service. `vendorServiceId` is kept only as an informational
   /// field on the quote request, set when every line happens to share one.
   _QuoteInput? _buildQuoteInput(CartState cart) {
+    // Assisted booking: nothing is chosen — just the vendor.
+    if (_isAssisted) {
+      return _QuoteInput(
+        vendorId: widget.assistedVendorId!,
+        vendorServiceId: null,
+        lines: const [],
+      );
+    }
     if (cart.cart.items.isEmpty || cart.services.isEmpty) return null;
 
     String? vendorId;
@@ -633,6 +690,7 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
   }
 
   String? _cartVendorId(CartState cart) {
+    if (_isAssisted) return widget.assistedVendorId;
     final vendorIds = cart.cart.items
         .map((item) => item.vendorId)
         .where((id) => id.isNotEmpty)
@@ -747,6 +805,9 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
         backendTaxes: backendTaxes,
         backendDiscount: backendDiscount,
         backendTotal: backendTotal,
+        isAssisted: _isAssisted,
+        assistedVendorId: widget.assistedVendorId,
+        advanceAmountPaise: _assistedAdvancePaise,
       ),
     );
   }
@@ -919,7 +980,7 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
       );
     }
 
-    if (cartState.cart.isEmpty) {
+    if (!_isAssisted && cartState.cart.isEmpty) {
       return Scaffold(
         backgroundColor: Colors.white,
         appBar: AppBar(
@@ -996,12 +1057,18 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
                     Gap(AppSpacing.cardGap.h),
                     _pickupModeCard(cartState),
                     Gap(AppSpacing.cardGap.h),
-                    _vendorOrderCard(cartState),
+                    _isAssisted
+                        ? _assistedOrderCard()
+                        : _vendorOrderCard(cartState),
                     Gap(AppSpacing.cardGap.h),
                     _pickupTimingCard(cartState),
                     Gap(AppSpacing.sectionGap.h),
-                    _couponSection(),
-                    Gap(AppSpacing.sectionGap.h),
+                    // Coupons need a service price to work from, which an
+                    // assisted booking doesn't have yet.
+                    if (!_isAssisted) ...[
+                      _couponSection(),
+                      Gap(AppSpacing.sectionGap.h),
+                    ],
                     _notesSection(),
                     Gap(AppSpacing.sectionGap.h),
                   ],
@@ -1043,7 +1110,9 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
               ),
               Gap(4.h),
               Text(
-                'Almost there! Review your details and proceed.',
+                _isAssisted
+                    ? _assistedConfig.buttonText
+                    : 'Almost there! Review your details and proceed.',
                 style: AppTypography.bodySmall
                     .copyWith(color: AppColors.onSurfaceVariant),
               ),
@@ -1142,7 +1211,11 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
   }
 
   Widget _pickupModeCard(CartState cartState) {
-    final expressAvailable = cartState.vendor?.expressPickupAvailable ?? false;
+    final expressAvailable = (_isAssisted
+                ? _assistedVendor
+                : cartState.vendor)
+            ?.expressPickupAvailable ??
+        false;
     final expressLocked = _isApiMode && !expressAvailable;
 
     void toggleExpress(bool val) {
@@ -1238,6 +1311,113 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
   /// Always-visible vendor + full item list — identical regardless of
   /// Express/Anytime/Schedule, driven entirely by the real cart model. Never
   /// hidden or restructured based on pickup mode.
+  /// "Book With Expert Check": replaces the item list. No service is chosen
+  /// here and no fake service price is shown — the laundry inspects the
+  /// garments and confirms the services and final price afterwards. All the
+  /// wording is admin-editable (dashboard → Categories → Assisted Booking).
+  Widget _assistedOrderCard() {
+    final vendor = _assistedVendor;
+    return _premiumCard(
+      cardKey: const ValueKey('checkout_assisted_order_card'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (vendor != null) ...[
+            Row(
+              children: [
+                Container(
+                  width: 40.r,
+                  height: 40.r,
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryContainer,
+                    borderRadius: BorderRadius.circular(AppRadius.md.r),
+                  ),
+                  child: Icon(AppIcons.store,
+                      size: 20.r, color: AppColors.primary),
+                ),
+                Gap(AppSpacing.sm.w),
+                Expanded(
+                  child: Text(
+                    vendor.name,
+                    style: AppTypography.titleSmall.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.lightTextPrimary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            Gap(AppSpacing.sm.h),
+            Divider(color: AppColors.outlineVariant, thickness: 1, height: 1),
+            Gap(AppSpacing.sm.h),
+          ],
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.fact_check_outlined,
+                  size: 22.r, color: AppColors.primary),
+              Gap(AppSpacing.sm.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _assistedConfig.assessmentTitle,
+                      style: AppTypography.titleSmall.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.lightTextPrimary,
+                      ),
+                    ),
+                    Gap(2.h),
+                    Text(
+                      _assistedConfig.assessmentMessage,
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          Gap(AppSpacing.sm.h),
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm.w,
+              vertical: AppSpacing.xs.h + 2.h,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.primaryContainer.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(AppRadius.md.r),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Service price',
+                    style: AppTypography.bodySmall
+                        .copyWith(color: AppColors.onSurface),
+                  ),
+                ),
+                Text(
+                  _assistedConfig.priceLabel,
+                  style: AppTypography.labelMedium.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _vendorOrderCard(CartState cartState) {
     final itemCount = cartState.cart.items.length;
     return _premiumCard(
@@ -1879,7 +2059,9 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (_backendPricesLoaded) ...[
+          if (_isAssisted) ...[
+            _assistedPaySummary(),
+          ] else if (_backendPricesLoaded) ...[
             Material(
               color: Colors.transparent,
               borderRadius: BorderRadius.circular(AppRadius.md.r),
@@ -2078,6 +2260,139 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
           ),
         ],
       ),
+    );
+  }
+
+  /// The bottom summary for "Book With Expert Check": leads with what is
+  /// charged now (the advance) and says plainly that the service price comes
+  /// after inspection — never a made-up total.
+  Widget _assistedPaySummary() {
+    final advance = (_assistedAdvancePaise ?? 5000) / 100.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.md.r),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(AppRadius.md.r),
+            onTap: _backendPricesLoaded
+                ? () => setState(() => _showBillDetails = !_showBillDetails)
+                : null,
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.xs.h),
+              child: Row(
+                children: [
+                  Container(
+                    width: 38.r,
+                    height: 38.r,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryContainer,
+                      borderRadius: BorderRadius.circular(AppRadius.sm.r),
+                    ),
+                    child: Icon(AppIcons.wallet,
+                        size: 19.r, color: AppColors.primary),
+                  ),
+                  Gap(AppSpacing.sm.w),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pay now to confirm pickup',
+                          style: AppTypography.labelSmall
+                              .copyWith(color: AppColors.onSurfaceVariant),
+                        ),
+                        Gap(2.h),
+                        Text(
+                          advance.toCurrencyDecimal,
+                          style: AppTypography.headlineMedium.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_backendPricesLoaded)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _showBillDetails ? 'Hide bill' : 'View bill',
+                          style: AppTypography.labelSmall.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Icon(
+                          _showBillDetails
+                              ? AppIcons.chevronUp
+                              : AppIcons.chevronDown,
+                          size: 18.r,
+                          color: AppColors.primary,
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (_showBillDetails && _backendPricesLoaded)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Gap(AppSpacing.sm.h),
+              Divider(color: AppColors.outlineVariant, thickness: 1, height: 1),
+              Gap(AppSpacing.xs.h),
+              _PriceRow(
+                icon: AppIcons.document,
+                label: 'Service price',
+                valueText: _assistedConfig.priceLabel,
+              ),
+              if (_backendDeliveryFee > 0)
+                _PriceRow(
+                  icon: Icons.local_shipping_outlined,
+                  label: 'Delivery Fee',
+                  amount: _backendDeliveryFee,
+                ),
+              if (_backendTaxes > 0)
+                _PriceRow(
+                  icon: Icons.percent_rounded,
+                  label: 'Taxes & Charges',
+                  amount: _backendTaxes,
+                ),
+              if (_backendExpressFee > 0)
+                _PriceRow(
+                  icon: Icons.bolt_rounded,
+                  label: 'Express Pickup Fee',
+                  amount: _backendExpressFee,
+                ),
+              for (final extra in _backendExtraCharges)
+                _PriceRow(
+                  icon: _iconForFeeCode(extra.code),
+                  label: extra.label,
+                  amount: extra.amount,
+                ),
+              Padding(
+                padding: EdgeInsets.only(top: 2.h),
+                child: Text(
+                  'Delivery and platform charges are added to your final bill. '
+                  'The ${advance.toCurrencyDecimal} you pay now is adjusted against it.',
+                  style: AppTypography.caption
+                      .copyWith(color: AppColors.onSurfaceVariant),
+                ),
+              ),
+            ],
+          ),
+        Gap(AppSpacing.xs.h),
+        Text(
+          _assistedConfig.checkoutNote,
+          style: AppTypography.bodySmall
+              .copyWith(color: AppColors.onSurfaceVariant, height: 1.4),
+        ),
+      ],
     );
   }
 
@@ -2656,13 +2971,17 @@ class _CouponSectionState extends State<_CouponSection> {
 class _PriceRow extends StatelessWidget {
   const _PriceRow({
     required this.label,
-    required this.amount,
+    this.amount = 0,
+    this.valueText,
     this.icon,
     this.valueColor,
   });
 
   final String label;
   final double amount;
+
+  /// Shown instead of [amount] when set (e.g. "Price after inspection").
+  final String? valueText;
   final IconData? icon;
   final Color? valueColor;
 
@@ -2687,7 +3006,7 @@ class _PriceRow extends StatelessWidget {
           ),
           Gap(AppSpacing.sm.w),
           Text(
-            amount.toCurrencyDecimal,
+            valueText ?? amount.toCurrencyDecimal,
             style: AppTypography.labelMedium.copyWith(
               fontWeight: FontWeight.w600,
               color: valueColor ?? AppColors.lightTextPrimary,

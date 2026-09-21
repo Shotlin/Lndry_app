@@ -6,6 +6,7 @@ import '../../../../core/widgets/widgets.dart';
 import '../../../../models/models.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../../shared/widgets/shared_widgets.dart';
+import '../../../checkout/presentation/providers/assisted_booking_provider.dart';
 import '../../../home/presentation/providers/home_providers.dart';
 import '../widgets/invoice_actions.dart';
 import '../../../../core/network/friendly_error.dart';
@@ -281,6 +282,13 @@ class _ActiveOrderTileState extends ConsumerState<_ActiveOrderTile> {
                   color: AppColors.tertiary,
                 ),
               ],
+              if (order.isAssisted) ...[
+                Gap(AppSpacing.xs.w),
+                StatusBadge(
+                  label: 'Expert Check',
+                  color: AppColors.primary,
+                ),
+              ],
             ],
           ),
           Gap(AppSpacing.cardGap.h),
@@ -316,7 +324,7 @@ class _ActiveOrderTileState extends ConsumerState<_ActiveOrderTile> {
             runSpacing: 4.h,
             children: [
               Text(
-                '${order.items.length} items • ${order.total.toCurrencyDecimal}',
+                _orderSummaryText(ref, order),
                 style: AppTypography.labelMedium,
               ),
               Row(
@@ -437,6 +445,13 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
                   color: AppColors.tertiary,
                 ),
               ],
+              if (order.isAssisted) ...[
+                Gap(AppSpacing.xs.w),
+                StatusBadge(
+                  label: 'Expert Check',
+                  color: AppColors.primary,
+                ),
+              ],
             ],
           ),
           Gap(AppSpacing.cardGap.h),
@@ -467,7 +482,7 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
             runSpacing: 4.h,
             children: [
               Text(
-                '${order.items.length} items • ${order.total.toCurrencyDecimal}',
+                _orderSummaryText(ref, order),
                 style: AppTypography.labelMedium,
               ),
               Row(
@@ -476,6 +491,7 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
                   // Reorder button (show for any terminal order)
                   if (order.status.isTerminal &&
                       order.source != 'STORE' &&
+                      !order.awaitingAssessment &&
                       !_isReordering)
                     GestureDetector(
                       onTap: _handleReorder,
@@ -489,6 +505,7 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
                     ),
                   if (order.status.isTerminal &&
                       order.source != 'STORE' &&
+                      !order.awaitingAssessment &&
                       !_isReordering)
                     Gap(AppSpacing.sm.w),
                   if (_isReordering)
@@ -523,6 +540,21 @@ class _PastOrderTileState extends ConsumerState<_PastOrderTile> {
 }
 
 /// "🏬 Vendor name" — which vendor an order is with, shown on every order tile.
+/// The "N items • ₹X" line on an order tile. An assisted ("Book With Expert
+/// Check") order that the laundry hasn't inspected yet has no items and no
+/// service price, so it says so (admin-editable wording) instead of showing
+/// "0 items • ₹34" made only of pickup/platform fees.
+String _orderSummaryText(WidgetRef ref, OrderModel order) {
+  if (order.awaitingAssessment) {
+    return ref
+            .watch(assistedBookingConfigProvider(order.vendorId))
+            .value
+            ?.priceLabel ??
+        AssistedBookingConfig.fallback.priceLabel;
+  }
+  return '${order.items.length} items • ${order.total.toCurrencyDecimal}';
+}
+
 class _VendorLine extends StatelessWidget {
   const _VendorLine({required this.name});
 

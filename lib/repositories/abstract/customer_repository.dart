@@ -124,11 +124,16 @@ abstract interface class CustomerRepository {
   /// more than one of this vendor's services (e.g. mixing a per-kg wash
   /// line with a per-piece dry-clean line), so it's no longer required to
   /// be the same for every line and may be omitted entirely.
+  ///
+  /// [assisted] = "Book With Expert Check": no garments/services are chosen
+  /// ([garmentLines] is ignored); the laundry inspects the garments and sets
+  /// the price later through the normal re-evaluation flow.
   Future<QuoteResult> createQuote({
     required String vendorId,
     String? vendorServiceId,
     required List<QuoteGarmentLine> garmentLines,
     double? estimatedWeightKg,
+    bool assisted = false,
   });
 
   /// Prepare an order draft before payment. Returns the draft ID and payable amount.
@@ -326,6 +331,12 @@ abstract interface class CustomerRepository {
   /// the server doesn't provide falls back to the built-in text.
   Future<CheckoutContent> getCheckoutContent();
 
+  /// Whether "Book With Expert Check" is offered for [vendorId] and the
+  /// admin-editable wording for it (dashboard → Categories → Assisted
+  /// Booking). Never throws: on any failure it returns an unavailable config,
+  /// so the button simply doesn't show.
+  Future<AssistedBookingConfig> getAssistedBookingConfig(String vendorId);
+
   // ── Order Reconciliation ──────────────────────────────────────────────────
   /// The vendor's proposed recalculation currently awaiting this customer's
   /// decision, or null if there isn't one. Also returns the last one shown
@@ -389,6 +400,70 @@ class AccountDeletionRequest {
   final DateTime? scheduledDeletionAt;
 
   bool get isPending => status == 'PENDING';
+}
+
+/// "Book With Expert Check" (assisted booking) — whether a vendor offers it
+/// and the wording shown around it. Everything comes from the backend
+/// (dashboard → Categories → Assisted Booking), so it can be re-worded or
+/// switched off without an app release. The built-in text below is used only
+/// while the request is in flight or if it fails — and then [available] is
+/// false, so nothing about the feature shows.
+class AssistedBookingConfig {
+  const AssistedBookingConfig({
+    required this.available,
+    required this.title,
+    required this.subtitle,
+    required this.buttonText,
+    required this.checkoutNote,
+    required this.assessmentTitle,
+    required this.assessmentMessage,
+    required this.priceLabel,
+    this.iconUrl,
+  });
+
+  static const AssistedBookingConfig fallback = AssistedBookingConfig(
+    available: false,
+    title: 'Not sure what service you need?',
+    subtitle:
+        "Book now — we'll inspect your garments and confirm the right service & price.",
+    buttonText: 'Book With Expert Check',
+    checkoutNote:
+        'Service & final price will be confirmed after garment inspection.',
+    assessmentTitle: 'Laundry Assessment Required',
+    assessmentMessage:
+        'Vendor will inspect your garments and confirm services, quantity/weight and final price.',
+    priceLabel: 'Price after inspection',
+  );
+
+  factory AssistedBookingConfig.fromJson(Map<String, dynamic> json) {
+    String pick(String key, String fallbackValue) {
+      final v = json[key];
+      return v is String && v.trim().isNotEmpty ? v : fallbackValue;
+    }
+
+    final icon = json['iconUrl'];
+    return AssistedBookingConfig(
+      available: json['available'] == true,
+      title: pick('title', fallback.title),
+      subtitle: pick('subtitle', fallback.subtitle),
+      buttonText: pick('buttonText', fallback.buttonText),
+      checkoutNote: pick('checkoutNote', fallback.checkoutNote),
+      assessmentTitle: pick('assessmentTitle', fallback.assessmentTitle),
+      assessmentMessage: pick('assessmentMessage', fallback.assessmentMessage),
+      priceLabel: pick('priceLabel', fallback.priceLabel),
+      iconUrl: icon is String && icon.trim().isNotEmpty ? icon : null,
+    );
+  }
+
+  final bool available;
+  final String title;
+  final String subtitle;
+  final String buttonText;
+  final String checkoutNote;
+  final String assessmentTitle;
+  final String assessmentMessage;
+  final String priceLabel;
+  final String? iconUrl;
 }
 
 /// Payment-screen copy, editable from the admin dashboard. `{amount}` in any

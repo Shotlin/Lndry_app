@@ -298,8 +298,13 @@ final List<RouteBase> _routes = [
   GoRoute(
     path: AppRoutes.checkout,
     name: AppRouteNames.checkout,
-    pageBuilder: (c, s) =>
-        _slideTransition(context: c, state: s, child: const CheckoutPage()),
+    pageBuilder: (c, s) => _slideTransition(
+      context: c,
+      state: s,
+      child: CheckoutPage(
+        assistedVendorId: s.uri.queryParameters['assistedVendor'],
+      ),
+    ),
   ),
   GoRoute(
     path: AppRoutes.payment,

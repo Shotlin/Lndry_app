@@ -107,6 +107,7 @@ abstract final class ApiEndpoints {
   static const String supportContact = '/customer/support-contact';
   static const String checkoutContent = '/customer/checkout-content';
   static const String faqs = '/customer/faqs';
+  static const String assistedBooking = '/customer/assisted-booking';
   static const String accountDeletion = '/customer/account-deletion';
 
   // ── Reviews ─────────────────────────────────────────────────────────────────

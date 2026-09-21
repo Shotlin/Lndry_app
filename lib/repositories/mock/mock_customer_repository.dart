@@ -766,8 +766,16 @@ class MockCustomerRepository implements CustomerRepository {
     String? vendorServiceId,
     required List<QuoteGarmentLine> garmentLines,
     double? estimatedWeightKg,
+    bool assisted = false,
   }) async {
     await _delay(fast: true);
+    if (assisted) {
+      return QuoteResult(
+        quoteId: 'quote_assisted_${DateTime.now().millisecondsSinceEpoch}',
+        estimatePaise: 0,
+        expiresAt: DateTime.now().add(const Duration(minutes: 10)),
+      );
+    }
     final estimatedPaise = garmentLines.fold<int>(
       0,
       (sum, line) => sum + (line.quantity * 19900),
@@ -1189,6 +1197,25 @@ class MockCustomerRepository implements CustomerRepository {
       id: 'mock-deletion',
       status: 'PENDING',
       requestedAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<AssistedBookingConfig> getAssistedBookingConfig(String vendorId) async {
+    await _delay(fast: true);
+    // The mock build shows the option so the flow can be reviewed visually.
+    return const AssistedBookingConfig(
+      available: true,
+      title: 'Not sure what service you need?',
+      subtitle:
+          "Book now — we'll inspect your garments and confirm the right service & price.",
+      buttonText: 'Book With Expert Check',
+      checkoutNote:
+          'Service & final price will be confirmed after garment inspection.',
+      assessmentTitle: 'Laundry Assessment Required',
+      assessmentMessage:
+          'Vendor will inspect your garments and confirm services, quantity/weight and final price.',
+      priceLabel: 'Price after inspection',
     );
   }
 

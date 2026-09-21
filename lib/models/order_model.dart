@@ -346,6 +346,10 @@ class OrderModel with _$OrderModel {
     String? pickupSlotStartTime,
     String? pickupSlotEndTime,
     @Default(false) bool isExpressPickup,
+    /// 'STANDARD' (the customer chose the services) or 'ASSISTED' ("Book With
+    /// Expert Check": the laundry inspects the garments and sets the services
+    /// and price through the normal re-evaluation flow).
+    @Default('STANDARD') String bookingType,
     DateTime? estimatedDeliveryAt,
     DateTime? pickedUpAt,
     DateTime? deliveredAt,
@@ -364,6 +368,15 @@ class OrderModel with _$OrderModel {
 
   factory OrderModel.fromJson(Map<String, dynamic> json) =>
       _$OrderModelFromJson(_normalizeOrderJson(json));
+
+  /// A "Book With Expert Check" order. Until the laundry has picked the
+  /// services (which turns [items] non-empty once the customer approves),
+  /// there is no service price — only the platform/pickup fees exist.
+  bool get isAssisted => bookingType == 'ASSISTED';
+
+  /// True while an assisted order is still waiting for the laundry's
+  /// inspection — i.e. there is nothing priced to show yet.
+  bool get awaitingAssessment => isAssisted && items.isEmpty;
 
   /// Status wording for display. A walk-in counter order ([source] 'STORE')
   /// reuses a few delivery statuses internally, so it gets its own wording —

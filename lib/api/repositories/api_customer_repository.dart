@@ -1039,18 +1039,23 @@ class ApiCustomerRepository implements CustomerRepository {
     String? vendorServiceId,
     required List<QuoteGarmentLine> garmentLines,
     double? estimatedWeightKg,
+    bool assisted = false,
   }) async {
     final body = <String, dynamic>{
       'vendor_id': vendorId,
-      if (vendorServiceId != null) 'service_id': vendorServiceId,
-      if (garmentLines.isNotEmpty)
+      // "Book With Expert Check": nothing is chosen, the laundry prices it
+      // after inspecting the garments.
+      if (assisted) 'booking_type': 'ASSISTED',
+      if (!assisted && vendorServiceId != null) 'service_id': vendorServiceId,
+      if (!assisted && garmentLines.isNotEmpty)
         'garment_lines': garmentLines
             .map((line) => {
                   'garment_type_id': line.garmentTypeId,
                   'quantity': line.quantity,
                 })
             .toList(),
-      if (estimatedWeightKg != null) 'estimated_weight_kg': estimatedWeightKg,
+      if (!assisted && estimatedWeightKg != null)
+        'estimated_weight_kg': estimatedWeightKg,
     };
 
     final resp = await _dio.post(ApiEndpoints.quotes, data: body);
@@ -1633,6 +1638,23 @@ class ApiCustomerRepository implements CustomerRepository {
   }
 
   @override
+  Future<AssistedBookingConfig> getAssistedBookingConfig(String vendorId) async {
+    try {
+      final resp = await _dio.get(
+        ApiEndpoints.assistedBooking,
+        queryParameters: {'vendor_id': vendorId},
+      );
+      return AssistedBookingConfig.fromJson(
+        _extractData(resp.data as Map<String, dynamic>),
+      );
+    } catch (_) {
+      // The option is a convenience — if the config can't be read, hide it
+      // rather than break the vendor page.
+      return AssistedBookingConfig.fallback;
+    }
+  }
+
+  @override
   Future<CheckoutContent> getCheckoutContent() async {
     final resp = await _dio.get(ApiEndpoints.checkoutContent);
     final data = _extractData(resp.data as Map<String, dynamic>);
@@ -1820,6 +1842,10 @@ class ApiCustomerRepository implements CustomerRepository {
       isExpressPickup: json['isExpressPickup'] as bool? ??
           json['is_express_pickup'] as bool? ??
           false,
+      bookingType: (json['bookingType'] as String? ??
+                  json['booking_type'] as String? ??
+                  'STANDARD')
+              .toUpperCase(),
       estimatedDeliveryAt: DateTime.tryParse(
           json['estimatedDelivery'] as String? ??
               json['estimated_delivery_at'] as String? ??

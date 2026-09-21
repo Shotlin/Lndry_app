@@ -65,6 +65,11 @@ abstract final class AppRoutes {
   static const String checkout = '/checkout';
   static const String payment = '/checkout/payment';
 
+  /// Checkout for "Book With Expert Check" with [vendorId] — no cart, no
+  /// services chosen (the laundry inspects the garments and prices it).
+  static String assistedCheckout(String vendorId) =>
+      '$checkout?assistedVendor=${Uri.encodeQueryComponent(vendorId)}';
+
   // ── Orders ────────────────────────────────────────────────────────────────
   /// Post-payment confirmation: /orders/:orderId/submitted
   static const String orderConfirmation = '/orders/:orderId/submitted';

@@ -14,6 +14,7 @@ import '../../../checkout/presentation/widgets/checkout_brand_header.dart';
 import '../../../home/presentation/providers/home_providers.dart';
 import '../../../wallet/presentation/providers/wallet_providers.dart';
 import '../controllers/razorpay_payment_controller.dart';
+import '../providers/assisted_booking_provider.dart';
 import '../providers/checkout_content_provider.dart';
 import '../../../../core/network/friendly_error.dart';
 
@@ -105,7 +106,8 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
 
     final session = _pendingSession;
 
-    if (cart.cart.isEmpty) {
+    // A "Book With Expert Check" booking has no cart by design.
+    if (!(session?.isAssisted ?? false) && cart.cart.isEmpty) {
       if (mounted) {
         AppSnackBar.showError(context, 'Your cart is empty.');
         context.go(AppRoutes.vendorListing);
@@ -447,7 +449,11 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
     }
 
     final placedOrder = await repo.placeOrder(placeRequest);
-    ref.read(cartStateProvider.notifier).clear();
+    // An assisted booking never used the cart, so leave whatever the customer
+    // has in it alone.
+    if (!(session?.isAssisted ?? false)) {
+      ref.read(cartStateProvider.notifier).clear();
+    }
     // The Orders list/Home screen otherwise wouldn't know this order
     // exists until their next pull-to-refresh — invalidate right away so
     // it's there the moment the customer navigates back to either screen.
@@ -490,8 +496,19 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
     final isDark = theme.brightness == Brightness.dark;
     final cartState = ref.watch(cartStateProvider);
     final session = GoRouterState.of(context).extra as CheckoutSession?;
+    final isAssisted = session?.isAssisted ?? false;
+    final assistedConfig = isAssisted
+        ? (ref
+                .watch(assistedBookingConfigProvider(
+                    session?.assistedVendorId ?? ''))
+                .value ??
+            AssistedBookingConfig.fallback)
+        : AssistedBookingConfig.fallback;
     final estimatedTotal = session?.finalPrice ?? cartState.total;
-    final advanceDue = _pendingPaymentOrder?.amount ?? _fallbackAdvanceDisplay;
+    final advanceDue = _pendingPaymentOrder?.amount ??
+        (session?.advanceAmountPaise != null
+            ? session!.advanceAmountPaise! / 100.0
+            : _fallbackAdvanceDisplay);
     // Admin-editable copy; `.value` is null only while the first fetch is in
     // flight, so the built-in text shows instead of a blank banner.
     final checkoutContent =
@@ -526,7 +543,7 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
         child: _isProcessing
             ? const AppLoadingPage(
                 message: 'Securing transaction with Razorpay...')
-            : cartState.cart.isEmpty
+            : (!isAssisted && cartState.cart.isEmpty)
                 ? AppEmptyState(
                     icon: AppIcons.cartOutlined,
                     title: 'Nothing to pay for',
@@ -557,6 +574,7 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
                                 estimatedTotal: estimatedTotal,
                                 advanceDue: advanceDue,
                                 balanceDue: balanceDue.toDouble(),
+                                assistedConfig: isAssisted ? assistedConfig : null,
                               ),
                               const Gap(14),
 
@@ -806,12 +824,18 @@ class _PaymentSummaryCard extends StatelessWidget {
     required this.estimatedTotal,
     required this.advanceDue,
     required this.balanceDue,
+    this.assistedConfig,
   });
 
   final bool isDark;
   final double estimatedTotal;
   final double advanceDue;
   final double balanceDue;
+
+  /// Set for "Book With Expert Check": there is no service price yet, so the
+  /// summary shows the admin-editable "price after inspection" wording instead
+  /// of an estimate and a balance.
+  final AssistedBookingConfig? assistedConfig;
 
   @override
   Widget build(BuildContext context) {
@@ -846,7 +870,9 @@ class _PaymentSummaryCard extends StatelessWidget {
                     ),
                     const Gap(4),
                     Text(
-                      'Final amount may vary after vendor weighs your items.',
+                      assistedConfig != null
+                          ? assistedConfig!.checkoutNote
+                          : 'Final amount may vary after vendor weighs your items.',
                       style: AppTypography.bodySmall
                           .copyWith(color: AppColors.onSurfaceVariant),
                     ),
@@ -862,11 +888,19 @@ class _PaymentSummaryCard extends StatelessWidget {
             ],
           ),
           const Gap(18),
-          _SummaryLineItem(
-            icon: AppIcons.document,
-            label: 'Total order estimate',
-            amount: estimatedTotal,
-          ),
+          if (assistedConfig != null)
+            _SummaryLineItem(
+              icon: AppIcons.document,
+              label: 'Service price',
+              valueText: assistedConfig!.priceLabel,
+              amount: 0,
+            )
+          else
+            _SummaryLineItem(
+              icon: AppIcons.document,
+              label: 'Total order estimate',
+              amount: estimatedTotal,
+            ),
           const Gap(10),
           _SummaryHighlightItem(
             icon: AppIcons.creditCard,
@@ -875,13 +909,24 @@ class _PaymentSummaryCard extends StatelessWidget {
             amount: advanceDue,
           ),
           const Gap(10),
-          _SummaryLineItem(
-            icon: AppIcons.clock,
-            label: 'Pay later after final check',
-            subtitle: 'After the vendor weighs your clothes',
-            amount: balanceDue,
-            muted: true,
-          ),
+          if (assistedConfig != null)
+            _SummaryLineItem(
+              icon: AppIcons.clock,
+              label: 'Pay later after final check',
+              subtitle:
+                  'After you approve the services and price the laundry confirms. This advance is adjusted against it.',
+              valueText: 'After inspection',
+              amount: 0,
+              muted: true,
+            )
+          else
+            _SummaryLineItem(
+              icon: AppIcons.clock,
+              label: 'Pay later after final check',
+              subtitle: 'After the vendor weighs your clothes',
+              amount: balanceDue,
+              muted: true,
+            ),
         ],
       ),
     );
@@ -893,6 +938,7 @@ class _SummaryLineItem extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.amount,
+    this.valueText,
     this.subtitle,
     this.muted = false,
   });
@@ -901,6 +947,9 @@ class _SummaryLineItem extends StatelessWidget {
   final String label;
   final String? subtitle;
   final double amount;
+
+  /// Shown instead of [amount] when set (e.g. "Price after inspection").
+  final String? valueText;
   final bool muted;
 
   @override
@@ -937,7 +986,7 @@ class _SummaryLineItem extends StatelessWidget {
         ),
         const Gap(8),
         Text(
-          amount.toCurrencyDecimal,
+          valueText ?? amount.toCurrencyDecimal,
           style: AppTypography.titleSmall.copyWith(
             fontWeight: FontWeight.w700,
             color: muted ? AppColors.onSurfaceVariant : primaryTextColor,

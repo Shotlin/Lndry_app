@@ -11,6 +11,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../repositories/repositories.dart';
 import '../../../../shared/widgets/service_icon.dart';
 import '../../../cart/presentation/providers/cart_providers.dart';
+import '../../../checkout/presentation/providers/assisted_booking_provider.dart';
 import '../providers/vendor_details_providers.dart';
 
 class VendorDetailsPage extends ConsumerStatefulWidget {
@@ -322,8 +323,30 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
     );
   }
 
+  /// "Book With Expert Check": book a pickup without choosing services — the
+  /// laundry inspects the garments and confirms the services and price
+  /// afterwards. Goes through the normal checkout (address, pickup slot,
+  /// ₹50 advance); the cart is not touched.
+  Future<void> _startAssistedBooking() {
+    return requireAuthenticated(
+      context: context,
+      ref: ref,
+      returnTo: currentRouteLocation(context),
+      action: (context, ref) async {
+        // Carry the pickup slot chosen on this screen into checkout.
+        _rememberSelection();
+        if (!context.mounted) return;
+        context.push(AppRoutes.assistedCheckout(widget.vendorId));
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Admin-controlled and per vendor: shown only when this vendor offers it.
+    final assistedConfig =
+        ref.watch(assistedBookingConfigProvider(widget.vendorId)).value;
+
     // Watched unconditionally, before any early return, so this
     // autoDispose provider always has a listener from the very first
     // frame — otherwise it gets torn down (losing the services/cart data
@@ -692,6 +715,19 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
                     ),
                   ),
                 ),
+                // "Not sure what service you need?" — a separate path for
+                // customers who don't want to pick services themselves. Only
+                // for vendors where the admin has enabled it.
+                if (assistedConfig != null && assistedConfig.available)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(20.w, 0, 20.w, 20.h),
+                      child: _AssistedBookingCard(
+                        config: assistedConfig,
+                        onTap: _startAssistedBooking,
+                      ),
+                    ),
+                  ),
                 // Services List — grouped by the vendor's own named service
                 // (e.g. "WASH CLEAN"), with individual garment items nested
                 // underneath once that group is expanded.
@@ -1048,6 +1084,108 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── "Book With Expert Check" call-to-action ──────────────────────────────────
+
+/// Kept visually separate from the service cards on purpose: it is an
+/// alternative *path*, not a service. All wording (and the optional icon) is
+/// admin-controlled — see the dashboard's Assisted Booking settings.
+class _AssistedBookingCard extends StatelessWidget {
+  const _AssistedBookingCard({required this.config, required this.onTap});
+
+  final AssistedBookingConfig config;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('assisted_booking_card'),
+      padding: EdgeInsets.all(16.r),
+      decoration: BoxDecoration(
+        gradient: AppColors.offerGradient,
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 44.r,
+                height: 44.r,
+                clipBehavior: Clip.antiAlias,
+                decoration: const BoxDecoration(
+                  color: AppColors.white,
+                  shape: BoxShape.circle,
+                ),
+                child: config.iconUrl != null
+                    ? CachedNetworkImage(
+                        imageUrl: config.iconUrl!,
+                        fit: BoxFit.cover,
+                        errorWidget: (_, __, ___) => Icon(
+                          Icons.fact_check_outlined,
+                          color: AppColors.primary,
+                          size: 24.r,
+                        ),
+                      )
+                    : Icon(
+                        Icons.fact_check_outlined,
+                        color: AppColors.primary,
+                        size: 24.r,
+                      ),
+              ),
+              Gap(12.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      config.title,
+                      style: AppTypography.titleSmall.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textBlack,
+                      ),
+                    ),
+                    Gap(4.h),
+                    Text(
+                      config.subtitle,
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          Gap(14.h),
+          ElevatedButton(
+            onPressed: onTap,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: AppColors.white,
+              elevation: 0,
+              minimumSize: Size.fromHeight(46.h),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.full.r),
+              ),
+            ),
+            child: Text(
+              config.buttonText,
+              style: AppTypography.buttonText.copyWith(
+                color: AppColors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
         ],
       ),
     );

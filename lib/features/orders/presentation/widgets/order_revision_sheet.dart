@@ -31,11 +31,14 @@ class OrderRevisionSheet {
     required OrderReconciliationModel reconciliation,
     required OrderModel order,
   }) {
+    final selecting = _isServiceSelection(order, reconciliation);
     return AppBottomSheet.show<ReconciliationDecision>(
       context: context,
-      title: 'Your Order Total Was Updated',
+      title: selecting
+          ? 'Confirm Services & Price'
+          : 'Your Order Total Was Updated',
       isScrollControlled: true,
-      primaryActionLabel: 'Accept New Total',
+      primaryActionLabel: selecting ? 'Approve Services & Price' : 'Accept New Total',
       // AppBottomSheet.show pushes onto the ROOT navigator
       // (useRootNavigator: true) so it stays open above whichever tab's
       // own nested Navigator this page happens to live in (OrderDetailsPage
@@ -54,6 +57,16 @@ class OrderRevisionSheet {
     );
   }
 }
+
+/// An assisted ("Book With Expert Check") booking's first evaluation *chooses*
+/// the services — every change is a newly added line. There is no earlier
+/// service total to compare against (only pickup/platform fees existed), so
+/// the sheet shows the resulting bill and what's left after the advance
+/// instead of an "increase".
+bool _isServiceSelection(OrderModel order, OrderReconciliationModel r) =>
+    order.isAssisted &&
+    r.lineChanges.isNotEmpty &&
+    r.lineChanges.every((c) => c.isNew);
 
 class _RevisionContent extends StatelessWidget {
   const _RevisionContent({required this.reconciliation, required this.order});
@@ -90,14 +103,20 @@ class _RevisionContent extends StatelessWidget {
     final previousTotal = reconciliation.previousPayableAmountPaise / 100.0;
     final proposedTotal = reconciliation.proposedPayableAmountPaise / 100.0;
     final delta = proposedTotal - previousTotal;
+    final selecting = _isServiceSelection(order, reconciliation);
+    final advancePaid = order.amountPaid;
+    final balance = (proposedTotal - advancePaid).clamp(0, double.infinity);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'The vendor re-weighed/recounted your items and found a difference. '
-          'Review the evidence below before deciding.',
+          selecting
+              ? 'The laundry inspected your garments and confirmed the services '
+                  'and price below. Review them before approving.'
+              : 'The vendor re-weighed/recounted your items and found a difference. '
+                  'Review the evidence below before deciding.',
           style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary),
         ),
         Gap(AppSpacing.md.h),
@@ -178,30 +197,41 @@ class _RevisionContent extends StatelessWidget {
           padding: EdgeInsets.all(AppSpacing.md.r),
           child: Column(
             children: [
-              _totalRow('Previous total', previousTotal, isBold: false),
-              Gap(6.h),
-              _totalRow('New total', proposedTotal, isBold: true, color: AppColors.primary),
-              const Divider(),
-              _totalRow(
-                delta >= 0 ? 'Increase' : 'Decrease',
-                delta.abs(),
-                isBold: true,
-                color: delta >= 0 ? AppColors.error : AppColors.success,
-              ),
+              if (selecting) ...[
+                _totalRow('Total (incl. delivery & platform charges)',
+                    proposedTotal,
+                    isBold: true, color: AppColors.primary),
+                Gap(6.h),
+                _totalRow('Advance already paid', advancePaid, isBold: false),
+                const Divider(),
+                _totalRow('Balance to pay later', balance.toDouble(),
+                    isBold: true),
+              ] else ...[
+                _totalRow('Previous total', previousTotal, isBold: false),
+                Gap(6.h),
+                _totalRow('New total', proposedTotal, isBold: true, color: AppColors.primary),
+                const Divider(),
+                _totalRow(
+                  delta >= 0 ? 'Increase' : 'Decrease',
+                  delta.abs(),
+                  isBold: true,
+                  color: delta >= 0 ? AppColors.error : AppColors.success,
+                ),
+              ],
             ],
           ),
         ),
 
         if (reconciliation.lineChanges.isNotEmpty) ...[
           Gap(AppSpacing.md.h),
-          Text('What changed', style: AppTypography.labelLarge.copyWith(fontWeight: FontWeight.bold)),
+          Text(selecting ? 'Services' : 'What changed', style: AppTypography.labelLarge.copyWith(fontWeight: FontWeight.bold)),
           Gap(8.h),
           ...reconciliation.lineChanges.map((c) => Padding(
                 padding: EdgeInsets.symmetric(vertical: 4.h),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (c.isNew)
+                    if (c.isNew && !selecting)
                       Text(
                         'New service added',
                         style: AppTypography.bodyMedium.copyWith(color: AppColors.success, fontWeight: FontWeight.bold),
