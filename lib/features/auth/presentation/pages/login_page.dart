@@ -1,10 +1,13 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/auth/auth_gate.dart';
+import '../../../../core/constants/app_constants.dart';
 import '../../../../core/design/design_system.dart';
 import '../../../../core/router/app_routes.dart';
 import '../../../../core/widgets/app_button.dart';
@@ -62,6 +65,19 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       Navigator.of(context).pop();
     } else {
       context.go(AppRoutes.home);
+    }
+  }
+
+  Future<void> _openLegalUrl(String url) async {
+    final uri = Uri.parse(url);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else if (mounted) {
+        AppSnackBar.showInfo(context, 'Could not open the page.');
+      }
+    } catch (_) {
+      if (mounted) AppSnackBar.showInfo(context, 'Could not open the page.');
     }
   }
 
@@ -228,24 +244,32 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                     color: AppColors.textMuted,
                                     height: 1.5,
                                   ),
-                                  children: const [
-                                    TextSpan(
+                                  children: [
+                                    const TextSpan(
                                         text:
                                             'By continuing, you agree to our '),
                                     TextSpan(
                                       text: 'Terms & Conditions',
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         color: AppColors.primary,
                                         fontWeight: FontWeight.w600,
+                                        decoration: TextDecoration.underline,
                                       ),
+                                      recognizer: TapGestureRecognizer()
+                                        ..onTap = () => _openLegalUrl(
+                                            AppConstants.termsOfServiceUrl),
                                     ),
-                                    TextSpan(text: ' and '),
+                                    const TextSpan(text: ' and '),
                                     TextSpan(
                                       text: 'Privacy Policy.',
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         color: AppColors.primary,
                                         fontWeight: FontWeight.w600,
+                                        decoration: TextDecoration.underline,
                                       ),
+                                      recognizer: TapGestureRecognizer()
+                                        ..onTap = () => _openLegalUrl(
+                                            AppConstants.privacyPolicyUrl),
                                     ),
                                   ],
                                 ),

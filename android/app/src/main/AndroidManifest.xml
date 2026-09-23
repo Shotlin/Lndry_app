@@ -10,8 +10,7 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
-        android:fullBackupContent="@null"
-        android:usesCleartextTraffic="true">
+        android:fullBackupContent="@null">
         <!-- Push notifications without an explicit channel land on the high-importance
              channel created in MainActivity. -->
         <meta-data

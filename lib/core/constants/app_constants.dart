@@ -8,10 +8,10 @@ abstract final class AppConstants {
   static const String appVersion = '1.0.0';
   static const String appBuildNumber = '1';
   static const String bundleId = 'com.lndry.app';
-  static const String supportEmail = 'support@lndry.app';
-  static const String privacyPolicyUrl = 'https://lndry.app/privacy';
-  static const String termsOfServiceUrl = 'https://lndry.app/terms';
-  static const String refundPolicyUrl = 'https://lndry.app/refunds';
+  static const String supportEmail = 'support@lndry.in';
+  static const String privacyPolicyUrl = 'https://lndry.in/privacy';
+  static const String termsOfServiceUrl = 'https://lndry.in/terms';
+  static const String refundPolicyUrl = 'https://lndry.in/terms';
 
   // ── Storage Keys ──────────────────────────────────────────────────────────
   static const String keyAccessToken = 'access_token';

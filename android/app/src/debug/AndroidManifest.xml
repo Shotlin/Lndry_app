@@ -4,4 +4,9 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Debug builds only: the Android emulator's local dev backend
+         (10.0.2.2:4500, see Env.baseUrl) is plain HTTP. Release/profile
+         builds never set this, so a real user's app only ever reaches
+         https://api.lndry.in. -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>

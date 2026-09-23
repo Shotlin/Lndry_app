@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../../core/constants/app_constants.dart';
 import '../../../../core/design/design_system.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../../../core/extensions/extensions.dart';
@@ -83,6 +85,19 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       }
     } finally {
       if (mounted) setState(() => _isSubmittingDeletion = false);
+    }
+  }
+
+  Future<void> _openLegalUrl(String url) async {
+    final uri = Uri.parse(url);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else if (mounted) {
+        AppSnackBar.showInfo(context, 'Could not open the page.');
+      }
+    } catch (_) {
+      if (mounted) AppSnackBar.showInfo(context, 'Could not open the page.');
     }
   }
 
@@ -426,6 +441,45 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       ),
                       Gap(AppSpacing.sectionGap.h * 1.5),
                     ],
+
+                    // ── Legal ──────────────────────────────────────────────
+                    Text('Legal', style: AppTypography.titleMedium),
+                    Gap(AppSpacing.cardGap.h),
+                    AppCard.outlined(
+                      padding: EdgeInsets.zero,
+                      child: Material(
+                        color: isDark ? AppColors.darkSurface : AppColors.white,
+                        borderRadius: BorderRadius.circular(AppRadius.card.r),
+                        clipBehavior: Clip.antiAlias,
+                        child: Column(
+                          children: [
+                            ListTile(
+                              leading: Icon(AppIcons.info,
+                                  color: AppColors.onSurfaceVariant),
+                              title: Text('Privacy Policy',
+                                  style: AppTypography.bodyMedium),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () =>
+                                  _openLegalUrl(AppConstants.privacyPolicyUrl),
+                            ),
+                            Divider(
+                                height: 1,
+                                color: AppColors.outlineVariant
+                                    .withValues(alpha: 0.5)),
+                            ListTile(
+                              leading: Icon(AppIcons.info,
+                                  color: AppColors.onSurfaceVariant),
+                              title: Text('Terms & Conditions',
+                                  style: AppTypography.bodyMedium),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () =>
+                                  _openLegalUrl(AppConstants.termsOfServiceUrl),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Gap(AppSpacing.sectionGap.h * 1.5),
 
                     // ── App Version ──────────────────────────────────────────
                     Center(
