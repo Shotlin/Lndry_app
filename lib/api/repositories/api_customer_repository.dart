@@ -1750,6 +1750,10 @@ class ApiCustomerRepository implements CustomerRepository {
       deliveryRadiusKm: _toDouble(json['approved_service_radius_km']) ?? 0.0,
       estimatedTurnaroundHours: 24,
       expressPickupAvailable: json['express_pickup_available'] as bool? ?? false,
+      googleBusinessUrl: json['google_business_url'] as String?,
+      googleRating: _toDouble(json['google_rating']),
+      googleReviewCount: (json['google_review_count'] as num?)?.toInt(),
+      googleBusinessName: json['google_business_name'] as String?,
     );
   }
 
@@ -1858,6 +1862,10 @@ class ApiCustomerRepository implements CustomerRepository {
       customerNotes: json['deliveryNotes'] as String? ??
           json['customerNotes'] as String? ??
           json['customer_notes'] as String?,
+      pickupCaptainName: json['pickupCaptainName'] as String?,
+      pickupCaptainPhone: json['pickupCaptainPhone'] as String?,
+      deliveryCaptainName: json['deliveryCaptainName'] as String?,
+      deliveryCaptainPhone: json['deliveryCaptainPhone'] as String?,
       createdAt: DateTime.tryParse(json['createdAt'] as String? ??
               json['created_at'] as String? ??
               '') ??

@@ -150,7 +150,31 @@ extension OrderStatusX on OrderStatus {
   /// Delivery OTP should be visible at these statuses.
   bool get showDeliveryOtpHint =>
       this == OrderStatus.outForDelivery || this == OrderStatus.deliveryAssigned;
+
+  /// Who the order-details call button should reach at this exact lifecycle
+  /// stage — see [CallTarget]. Backend/order state is the source of truth
+  /// for the actual phone number; this only decides *whose* number applies.
+  CallTarget get callTarget {
+    const pickupCaptainStatuses = {
+      // A captain is assigned and physically engaged with the pickup —
+      // scheduled-but-nobody-assigned-yet (vendorAccepted) stays support.
+      OrderStatus.pickupAssigned,
+      OrderStatus.goingForPickup,
+      OrderStatus.pickupOtpVerified,
+    };
+    const deliveryCaptainStatuses = {
+      OrderStatus.deliveryAssigned,
+      OrderStatus.outForDelivery,
+      OrderStatus.deliveryOtpVerified,
+    };
+    if (pickupCaptainStatuses.contains(this)) return CallTarget.pickupCaptain;
+    if (deliveryCaptainStatuses.contains(this)) return CallTarget.deliveryCaptain;
+    return CallTarget.support;
+  }
 }
+
+/// Who the order-details call icon should dial right now.
+enum CallTarget { support, pickupCaptain, deliveryCaptain }
 
 // ── Payment Method ─────────────────────────────────────────────────────────────
 /// Razorpay-supported payment methods plus Cash on Delivery, which checkout
@@ -362,6 +386,15 @@ class OrderModel with _$OrderModel {
     /// in-person counter sale at a vendor's own POS (epic-laundry-desktop)
     /// synced here because the buyer's phone matched this account.
     @Default('MARKETPLACE') String source,
+    // ── Order-details call button ────────────────────────────────────────
+    // The captain currently, genuinely assigned to this order's pickup/
+    // delivery leg (from the backend's order_assignments table) — null
+    // whenever nobody is actively assigned to that leg right now, in which
+    // case the call button falls back to platform support.
+    String? pickupCaptainName,
+    String? pickupCaptainPhone,
+    String? deliveryCaptainName,
+    String? deliveryCaptainPhone,
     required DateTime createdAt,
     DateTime? updatedAt,
   }) = _OrderModel;

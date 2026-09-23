@@ -30,10 +30,25 @@ class VendorModel with _$VendorModel {
     double? distanceKm,
     DateTime? createdAt,
     @Default(false) bool expressPickupAvailable,
+    // ── Optional Google Business Profile connection ─────────────────────
+    // Null on every vendor that hasn't linked one — admin-entered (link +
+    // the rating/review count they see on the vendor's real Google
+    // listing), never scraped or fetched. The customer app shows the
+    // Google review card only when a url AND a rating are both present.
+    String? googleBusinessUrl,
+    double? googleRating,
+    int? googleReviewCount,
+    String? googleBusinessName,
   }) = _VendorModel;
 
   factory VendorModel.fromJson(Map<String, dynamic> json) =>
       _$VendorModelFromJson(json);
+}
+
+extension VendorGoogleReviewsX on VendorModel {
+  /// Whether a Google Business Profile is actually connected — the single
+  /// gate for showing the Google review card at all.
+  bool get hasGoogleReviews => googleBusinessUrl != null && googleRating != null;
 }
 
 /// Category model for laundry service categories

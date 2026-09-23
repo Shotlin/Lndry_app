@@ -27,7 +27,11 @@
     "deliveryRadiusKm": 8.0,
     "estimatedTurnaroundHours": 24,
     "tags": ["Eco-friendly", "Express", "Premium"],
-    "createdAt": "2025-01-15T10:00:00.000Z"
+    "createdAt": "2025-01-15T10:00:00.000Z",
+    "googleBusinessUrl": "https://www.google.com/maps/place/SparkleWash+Premium/@12.9716,77.5946,17z",
+    "googleRating": 4.7,
+    "googleReviewCount": 326,
+    "googleBusinessName": "SparkleWash Premium"
   },
   {
     "id": "vndr_002",

@@ -6,6 +6,7 @@ import '../../../../core/design/design_system.dart';
 import '../../../../core/utils/currency_utils.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../../../models/models.dart';
+import '../../../../shared/widgets/full_screen_image_viewer.dart';
 
 enum ReconciliationDecision { accept, reject }
 
@@ -156,13 +157,20 @@ class _RevisionContent extends StatelessWidget {
                         scrollDirection: Axis.horizontal,
                         itemCount: problem.photoUrls.length,
                         separatorBuilder: (_, __) => Gap(6.w),
-                        itemBuilder: (context, idx) => ClipRRect(
-                          borderRadius: BorderRadius.circular(6.r),
-                          child: Image.network(
-                            problem.photoUrls[idx],
-                            width: 64.r,
-                            height: 64.r,
-                            fit: BoxFit.cover,
+                        itemBuilder: (context, idx) => GestureDetector(
+                          onTap: () => FullScreenImageViewer.show(
+                            context,
+                            images: problem.photoUrls,
+                            initialIndex: idx,
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(6.r),
+                            child: Image.network(
+                              problem.photoUrls[idx],
+                              width: 64.r,
+                              height: 64.r,
+                              fit: BoxFit.cover,
+                            ),
                           ),
                         ),
                       ),
@@ -179,13 +187,20 @@ class _RevisionContent extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               itemCount: reconciliation.photos.length,
               separatorBuilder: (_, __) => Gap(8.w),
-              itemBuilder: (context, idx) => ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadius.sm.r),
-                child: Image.network(
-                  reconciliation.photos[idx],
-                  width: 84.r,
-                  height: 84.r,
-                  fit: BoxFit.cover,
+              itemBuilder: (context, idx) => GestureDetector(
+                onTap: () => FullScreenImageViewer.show(
+                  context,
+                  images: reconciliation.photos,
+                  initialIndex: idx,
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.sm.r),
+                  child: Image.network(
+                    reconciliation.photos[idx],
+                    width: 84.r,
+                    height: 84.r,
+                    fit: BoxFit.cover,
+                  ),
                 ),
               ),
             ),

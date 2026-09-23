@@ -13,6 +13,7 @@ import '../widgets/balance_payment_card.dart';
 import '../widgets/invoice_actions.dart';
 import '../widgets/order_revision_sheet.dart';
 import '../widgets/payment_status_card.dart';
+import '../../../../shared/widgets/full_screen_image_viewer.dart';
 import '../../../../core/network/friendly_error.dart';
 import '../../../cart/presentation/providers/cart_providers.dart';
 import '../../../checkout/presentation/providers/assisted_booking_provider.dart';
@@ -208,6 +209,14 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
     }
   }
 
+  Future<void> _dialNumber(String phone) async {
+    final uri = Uri(scheme: 'tel', path: phone);
+    final launched = await launchUrl(uri);
+    if (!launched && mounted) {
+      AppSnackBar.showError(context, 'Could not open the dialer.');
+    }
+  }
+
   Future<void> _callSupport() async {
     setState(() => _isCallingSupport = true);
     try {
@@ -217,16 +226,64 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
         if (mounted) AppSnackBar.showError(context, 'Support phone number is unavailable right now.');
         return;
       }
-      final uri = Uri(scheme: 'tel', path: phone);
-      final launched = await launchUrl(uri);
-      if (!launched && mounted) {
-        AppSnackBar.showError(context, 'Could not open the dialer.');
-      }
+      await _dialNumber(phone);
     } catch (e) {
       if (mounted) AppSnackBar.showError(context, 'Failed to fetch support contact: ${friendlyError(e)}');
     } finally {
       if (mounted) setState(() => _isCallingSupport = false);
     }
+  }
+
+  /// The order-details call button (see [OrderStatusX.callTarget]): dials
+  /// whichever captain is genuinely, currently assigned to the order's
+  /// active leg (backend/order state decides this, never guessed on the
+  /// client) and falls back to the platform support number — the exact
+  /// same Help & FAQs contact [_callSupport] already uses, never a second
+  /// hardcoded number — whenever no captain applies or that leg's captain
+  /// number isn't available for some reason.
+  Future<void> _handleCallButtonTap(OrderModel order) async {
+    final captainPhone = switch (order.status.callTarget) {
+      CallTarget.pickupCaptain => order.pickupCaptainPhone,
+      CallTarget.deliveryCaptain => order.deliveryCaptainPhone,
+      CallTarget.support => null,
+    };
+    if (captainPhone != null && captainPhone.trim().isNotEmpty) {
+      await _dialNumber(captainPhone);
+      return;
+    }
+    await _callSupport();
+  }
+
+  /// AppBar phone icon — who it reaches changes automatically with the
+  /// order's lifecycle (support → pickup captain → support → delivery
+  /// captain → support), per [OrderStatusX.callTarget]. Purely a contact
+  /// action; nothing else about this screen changes.
+  Widget _buildCallButton(OrderModel order) {
+    final target = order.status.callTarget;
+    final hasCaptainNumber = switch (target) {
+      CallTarget.pickupCaptain => (order.pickupCaptainPhone ?? '').trim().isNotEmpty,
+      CallTarget.deliveryCaptain => (order.deliveryCaptainPhone ?? '').trim().isNotEmpty,
+      CallTarget.support => false,
+    };
+    final tooltip = switch (target) {
+      CallTarget.pickupCaptain when hasCaptainNumber => 'Call pickup captain',
+      CallTarget.deliveryCaptain when hasCaptainNumber => 'Call delivery captain',
+      _ => 'Call LNDRY support',
+    };
+
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        icon: _isCallingSupport
+            ? SizedBox(
+                width: 20.r,
+                height: 20.r,
+                child: const CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.call_rounded),
+        onPressed: _isCallingSupport ? null : () => _handleCallButtonTap(order),
+      ),
+    );
   }
 
   Future<void> _maybeFetchOtp(OrderModel order) async {
@@ -851,6 +908,7 @@ class _OrderDetailsPageState extends ConsumerState<OrderDetailsPage> {
               }
             },
           ),
+        actions: [_buildCallButton(order)],
         backgroundColor: isDark ? AppColors.darkSurface : AppColors.surface,
         elevation: 0,
       ),
@@ -1634,13 +1692,20 @@ class _ReevaluationSection extends StatelessWidget {
                           scrollDirection: Axis.horizontal,
                           itemCount: problem.photoUrls.length,
                           separatorBuilder: (_, __) => Gap(6.w),
-                          itemBuilder: (context, idx) => ClipRRect(
-                            borderRadius: BorderRadius.circular(6.r),
-                            child: Image.network(
-                              problem.photoUrls[idx],
-                              width: 52.r,
-                              height: 52.r,
-                              fit: BoxFit.cover,
+                          itemBuilder: (context, idx) => GestureDetector(
+                            onTap: () => FullScreenImageViewer.show(
+                              context,
+                              images: problem.photoUrls,
+                              initialIndex: idx,
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(6.r),
+                              child: Image.network(
+                                problem.photoUrls[idx],
+                                width: 52.r,
+                                height: 52.r,
+                                fit: BoxFit.cover,
+                              ),
                             ),
                           ),
                         ),
@@ -1659,13 +1724,20 @@ class _ReevaluationSection extends StatelessWidget {
                 scrollDirection: Axis.horizontal,
                 itemCount: reconciliation.photos.length,
                 separatorBuilder: (_, __) => Gap(8.w),
-                itemBuilder: (context, idx) => ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadius.sm.r),
-                  child: Image.network(
-                    reconciliation.photos[idx],
-                    width: 64.r,
-                    height: 64.r,
-                    fit: BoxFit.cover,
+                itemBuilder: (context, idx) => GestureDetector(
+                  onTap: () => FullScreenImageViewer.show(
+                    context,
+                    images: reconciliation.photos,
+                    initialIndex: idx,
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(AppRadius.sm.r),
+                    child: Image.network(
+                      reconciliation.photos[idx],
+                      width: 64.r,
+                      height: 64.r,
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
               ),

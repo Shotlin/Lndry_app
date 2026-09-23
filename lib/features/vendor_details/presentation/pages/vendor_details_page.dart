@@ -1,5 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/auth/auth_gate.dart';
 import '../../../../core/design/design_system.dart';
 import '../../../../core/extensions/extensions.dart';
@@ -632,6 +634,18 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
                 ),
               ),
 
+              // ── Google Reviews (optional, external trust signal) ──────────
+              // Shown only when this vendor has actually connected a Google
+              // Business Profile (admin/vendor-set) — no link, no card, and
+              // never a placeholder rating.
+              if (_vendor!.hasGoogleReviews)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(20.w, 0, 20.w, 20.h),
+                    child: _GoogleReviewsCard(vendor: _vendor!),
+                  ),
+                ),
+
               // ── 3. Feature Badges Row ──────────────────────────────────────
               if (_tabController.index == 0 || _tabController.index == 2)
                 const SliverToBoxAdapter(
@@ -1187,6 +1201,113 @@ class _AssistedBookingCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Google Reviews card ───────────────────────────────────────────────────────
+
+/// Optional external trust signal — only ever rendered when the vendor has
+/// actually connected a Google Business Profile ([VendorModel.hasGoogleReviews]
+/// is the gate the caller checks). The rating/review count shown here always
+/// comes straight from the backend (which itself only ever caches real
+/// Google Places data) — never a value entered anywhere in this app. Tapping
+/// it opens the vendor's real Google listing; this is entirely separate from
+/// LNDRY's own reviews system (the Reviews tab elsewhere on this page).
+class _GoogleReviewsCard extends StatelessWidget {
+  const _GoogleReviewsCard({required this.vendor});
+
+  final VendorModel vendor;
+
+  Future<void> _openOnGoogle(BuildContext context) async {
+    final url = vendor.googleBusinessUrl;
+    if (url == null) return;
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && context.mounted) {
+      AppSnackBar.showError(context, 'Could not open the Google listing.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rating = vendor.googleRating;
+    return AppCard.outlined(
+      padding: EdgeInsets.all(14.r),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md.r),
+        onTap: () => _openOnGoogle(context),
+        child: Row(
+          children: [
+            SvgPicture.asset(
+              'assets/icons/google_g.svg',
+              width: 28.r,
+              height: 28.r,
+            ),
+            Gap(12.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    vendor.googleBusinessName ?? vendor.name,
+                    style: AppTypography.bodyMedium.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textBlack,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Gap(2.h),
+                  Row(
+                    children: [
+                      if (rating != null) ...[
+                        Icon(AppIcons.star, color: AppColors.rating, size: 13.r),
+                        Gap(3.w),
+                        Text(
+                          rating.toStringAsFixed(1),
+                          style: AppTypography.bodySmall.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textBlack,
+                          ),
+                        ),
+                        Gap(4.w),
+                        Text(
+                          '·',
+                          style: AppTypography.caption
+                              .copyWith(color: AppColors.textSecondary),
+                        ),
+                        Gap(4.w),
+                      ],
+                      Text(
+                        '${vendor.googleReviewCount ?? 0} Google reviews',
+                        style: AppTypography.caption
+                            .copyWith(color: AppColors.textSecondary),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Gap(8.w),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+              decoration: BoxDecoration(
+                color: AppColors.primaryContainer,
+                borderRadius: BorderRadius.circular(AppRadius.full.r),
+              ),
+              child: Text(
+                'View on Google',
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
