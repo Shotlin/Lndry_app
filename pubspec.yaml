@@ -1,7 +1,7 @@
 name: lndry
 description: "LNDRY — A production-grade laundry marketplace connecting customers, vendors, and delivery partners."
 publish_to: "none"
-version: 1.0.2+3
+version: 1.0.2+10
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
