@@ -11,6 +11,7 @@ import 'api_response.dart';
 import 'api_exception.dart';
 import 'api_endpoints.dart';
 import '../../repositories/mock/mock_customer_repository.dart';
+import '../../providers/auth_provider.dart';
 
 // ── Dio Client Provider ─────────────────────────────────────────────────────────
 
@@ -55,58 +56,68 @@ Dio _createDio(StorageService storage, Ref ref) {
       return handler.next(options);
     },
     onError: (error, handler) async {
-      // Attempt token refresh on 401
-      if (error.response?.statusCode == 401) {
-        try {
-          final refreshToken =
-              await storage.getSecure(AppConstants.keyRefreshToken);
-          if (refreshToken != null && refreshToken.isNotEmpty) {
-            // Attempt refresh
-            final refreshDio = Dio(
-              BaseOptions(
-                baseUrl: Env.baseUrl,
-                connectTimeout:
-                    const Duration(milliseconds: Env.connectTimeoutMs),
-                receiveTimeout:
-                    const Duration(milliseconds: Env.receiveTimeoutMs),
-              ),
-            );
-
-            final resp = await refreshDio.post(
-              ApiEndpoints.refreshToken,
-              data: {'refreshToken': refreshToken},
-            );
-
-            final data = resp.data as Map<String, dynamic>?;
-            final body = data?['data'] as Map<String, dynamic>?;
-
-            if (body != null) {
-              final newAccess = body['accessToken'] as String?;
-              final newRefresh = body['refreshToken'] as String?;
-
-              if (newAccess != null) {
-                await storage.saveSecure(
-                    AppConstants.keyAccessToken, newAccess);
-                if (newRefresh != null) {
-                  await storage.saveSecure(
-                      AppConstants.keyRefreshToken, newRefresh);
-                }
-
-                // Retry the original request with new token
-                error.requestOptions.headers['Authorization'] =
-                    'Bearer $newAccess';
-                final retryResponse = await dio.fetch(error.requestOptions);
-                return handler.resolve(retryResponse);
-              }
-            }
-          }
-        } catch (_) {
-          // Refresh failed; clear session and let error propagate
-          await storage.clearSession();
-        }
+      // A 401 on a signed-in request means the access token is no longer
+      // valid: try to renew it once with the refresh token.
+      final path = error.requestOptions.path;
+      if (error.response?.statusCode != 401 || _isPublicEndpoint(path)) {
+        return handler.next(error);
       }
 
-      return handler.next(error);
+      final refreshToken =
+          await storage.getSecure(AppConstants.keyRefreshToken);
+      if (refreshToken == null || refreshToken.isEmpty) {
+        // Nothing to renew with: the session is over.
+        _expireSession(ref);
+        return handler.next(error);
+      }
+
+      String? newAccess;
+      try {
+        final refreshDio = Dio(
+          BaseOptions(
+            baseUrl: Env.baseUrl,
+            connectTimeout: const Duration(milliseconds: Env.connectTimeoutMs),
+            receiveTimeout: const Duration(milliseconds: Env.receiveTimeoutMs),
+          ),
+        )..httpClientAdapter = dio.httpClientAdapter;
+        final resp = await refreshDio.post(
+          ApiEndpoints.refreshToken,
+          data: {'refreshToken': refreshToken},
+        );
+        final data = resp.data as Map<String, dynamic>?;
+        final body = data?['data'] as Map<String, dynamic>?;
+        newAccess = body?['accessToken'] as String?;
+        final newRefresh = body?['refreshToken'] as String?;
+        if (newAccess != null) {
+          await storage.saveSecure(AppConstants.keyAccessToken, newAccess);
+          if (newRefresh != null) {
+            await storage.saveSecure(AppConstants.keyRefreshToken, newRefresh);
+          }
+        }
+      } on DioException catch (e) {
+        // Only a definite "this session is not valid" answer ends the
+        // session. No internet / timeout / server error must never sign the
+        // user out — they just retry later.
+        final code = e.response?.statusCode;
+        if (code == 400 || code == 401 || code == 403) _expireSession(ref);
+        return handler.next(error);
+      } catch (_) {
+        return handler.next(error);
+      }
+
+      if (newAccess == null) {
+        _expireSession(ref);
+        return handler.next(error);
+      }
+
+      // Retry the original request with the new token.
+      try {
+        error.requestOptions.headers['Authorization'] = 'Bearer $newAccess';
+        final retryResponse = await dio.fetch<dynamic>(error.requestOptions);
+        return handler.resolve(retryResponse);
+      } on DioException catch (retryError) {
+        return handler.next(retryError);
+      }
     },
   ));
 
@@ -153,6 +164,16 @@ Dio _createDio(StorageService storage, Ref ref) {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/// The login can't be renewed any more (expired, revoked, or signed in
+/// somewhere else): sign the user out in the app so the router sends them to
+/// the login screen and they see why, instead of every screen failing with a
+/// misleading "check your connection" message.
+void _expireSession(Ref ref) {
+  try {
+    ref.read(authProvider.notifier).handleSessionExpired();
+  } catch (_) {}
+}
 
 /// Paths that do not require an auth token.
 bool _isPublicEndpoint(String path) {

@@ -31,6 +31,22 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _isLoading = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Arrived here because the saved login ended on its own: say so once.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ref.read(sessionExpiredNoticeProvider)) {
+        ref.read(sessionExpiredNoticeProvider.notifier).state = false;
+        AppSnackBar.showError(
+          context,
+          'Your session has ended. Please log in again to continue.',
+        );
+      }
+    });
+  }
+
+  @override
   void dispose() {
     _phoneController.dispose();
     super.dispose();

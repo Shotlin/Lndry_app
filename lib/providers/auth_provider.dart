@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:dio/dio.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -148,10 +149,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
 
       _routeAfterAuth(user: user);
-    } catch (_) {
-      // Token refresh failed — clear everything and go to login.
-      await _storage.clearSession();
-      await _clearUserPrefs();
+    } catch (e) {
+      // Only a definite rejection (session expired / revoked) clears the
+      // login. No internet or a server hiccup keeps the saved session so the
+      // next launch restores it — a one-year login must survive a bad signal.
+      final status = e is DioException
+          ? e.response?.statusCode
+          : (e is ApiException ? e.statusCode : null);
+      if (status == 400 || status == 401 || status == 403) {
+        await _storage.clearSession();
+        await _clearUserPrefs();
+      }
       state = const AuthUnauthenticated();
     }
   }
@@ -352,6 +360,32 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = AuthAuthenticated(updated);
   }
 
+  // ── Session expiry ────────────────────────────────────────────────────────
+
+  /// The backend no longer accepts this login and it can't be renewed. Clear
+  /// it and mark the user signed out; the router then moves any signed-in
+  /// screen to the login page (returning here afterwards) and the login page
+  /// explains what happened. Does nothing for guests or an already-ended
+  /// session, so it is safe to call from several failing requests at once.
+  Future<void> handleSessionExpired() async {
+    if (state is AuthUnauthenticated ||
+        state is AuthInitial ||
+        state is AuthLoading ||
+        state is AuthOtpSent ||
+        state is AuthError) {
+      return;
+    }
+    await _tokenRefreshSub?.cancel();
+    _tokenRefreshSub = null;
+    onSessionExpired?.call();
+    await _storage.clearSession();
+    await _clearUserPrefs();
+    state = const AuthUnauthenticated();
+  }
+
+  /// Set by [authProvider] so the login page can show a one-time notice.
+  void Function()? onSessionExpired;
+
   // ── Logout ────────────────────────────────────────────────────────────────
 
   Future<void> logout() async {
@@ -513,10 +547,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 
+/// True after a session ended on its own (not by the user signing out); the
+/// login page shows a one-time "please log in again" notice and clears it.
+final sessionExpiredNoticeProvider = StateProvider<bool>((ref) => false);
+
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   final repo = ref.watch(customerRepositoryProvider);
   final storage = ref.watch(storageServiceProvider);
-  return AuthNotifier(repo, storage);
+  final notifier = AuthNotifier(repo, storage);
+  notifier.onSessionExpired =
+      () => ref.read(sessionExpiredNoticeProvider.notifier).state = true;
+  return notifier;
 });
 
 /// Convenience provider: returns the current authenticated user, or null.
