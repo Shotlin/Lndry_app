@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lndry/core/constants/app_constants.dart';
 import 'package:lndry/core/services/storage_service.dart';
@@ -22,7 +23,7 @@ const _testAddress = AddressModel(
 );
 
 class _FakeLocationCaptureService extends LocationCaptureService {
-  const _FakeLocationCaptureService({required this.enabled});
+  _FakeLocationCaptureService({required this.enabled}) : super(Dio());
   final bool enabled;
 
   @override
@@ -100,7 +101,7 @@ void main() {
           customerRepositoryProvider.overrideWithValue(MockCustomerRepository()),
           currentAddressProvider.overrideWith((ref) async => _testAddress),
           locationCaptureServiceProvider
-              .overrideWithValue(const _FakeLocationCaptureService(enabled: true)),
+              .overrideWithValue(_FakeLocationCaptureService(enabled: true)),
           homeCategoriesProvider.overrideWith((ref) async => const []),
           homeVendorsProvider.overrideWith((ref) async => const []),
           activeOrdersProvider.overrideWith((ref) async => const []),
@@ -137,7 +138,7 @@ void main() {
       customerRepositoryProvider.overrideWithValue(MockCustomerRepository()),
       currentAddressProvider.overrideWith((ref) async => _testAddress),
       locationCaptureServiceProvider
-          .overrideWithValue(const _FakeLocationCaptureService(enabled: false)),
+          .overrideWithValue(_FakeLocationCaptureService(enabled: false)),
       homeCategoriesProvider.overrideWith((ref) async => const []),
       homeVendorsProvider.overrideWith((ref) async => const []),
       activeOrdersProvider.overrideWith((ref) async => const []),
@@ -174,7 +175,7 @@ void main() {
           customerRepositoryProvider.overrideWithValue(MockCustomerRepository()),
           currentAddressProvider.overrideWith((ref) async => _testAddress),
           locationCaptureServiceProvider
-              .overrideWithValue(const _FakeLocationCaptureService(enabled: false)),
+              .overrideWithValue(_FakeLocationCaptureService(enabled: false)),
           homeCategoriesProvider.overrideWith((ref) async => const []),
           homeVendorsProvider.overrideWith((ref) async => const []),
           activeOrdersProvider.overrideWith((ref) async => const []),

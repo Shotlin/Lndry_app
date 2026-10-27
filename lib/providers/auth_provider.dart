@@ -128,15 +128,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return;
     }
 
-    // Attempt to restore session by refreshing the token pair.
+    // Restore the session by simply loading the profile. If the access token
+    // has expired the network layer renews it transparently (once, with the
+    // stored refresh token). Rotating the refresh token on EVERY launch — as
+    // this used to do — raced with the requests the home screen fires at the
+    // same moment, and a lost response on a weak signal left the phone holding
+    // a token the server had already replaced: the user was "logged out" for
+    // no reason.
     try {
-      final pair = await _repo.refreshTokens();
-
-      // Store refreshed tokens
-      await _storage.saveSecure(AppConstants.keyAccessToken, pair.accessToken);
-      await _storage.saveSecure(
-          AppConstants.keyRefreshToken, pair.refreshToken);
-
       // Fetch user profile
       final user = await _repo.getProfile();
       await _saveUserPrefs(user);
@@ -159,9 +158,35 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (status == 400 || status == 401 || status == 403) {
         await _storage.clearSession();
         await _clearUserPrefs();
+        state = const AuthUnauthenticated();
+        return;
       }
-      state = const AuthUnauthenticated();
+      // No internet / timeout / server hiccup: the saved login is still valid.
+      // Open the app with the profile we cached last time instead of throwing
+      // the user back to the login screen; requests recover on their own once
+      // the connection returns.
+      final cached = _cachedUser();
+      state = cached != null
+          ? AuthAuthenticated(cached)
+          : const AuthUnauthenticated();
     }
+  }
+
+  /// The signed-in user as of the last successful profile load, or null.
+  UserModel? _cachedUser() {
+    final id = _storage.getString(AppConstants.keyUserId);
+    final name = _storage.getString('user_name');
+    final phone = _storage.getString('user_phone');
+    if (id == null || id.isEmpty || phone == null || phone.isEmpty) return null;
+    final email = _storage.getString('user_email');
+    return UserModel(
+      id: id,
+      name: name ?? '',
+      phone: phone,
+      email: (email == null || email.isEmpty) ? null : email,
+      role: UserRole.customer,
+      isVerified: true,
+    );
   }
 
   // ── OTP flow ───────────────────────────────────────────────────────────────

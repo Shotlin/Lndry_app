@@ -1458,11 +1458,14 @@ class _QuickScheduleCard extends ConsumerWidget {
                   children: [
                     Row(
                       children: [
-                        Text(
-                          'Book in under a minute',
-                          style: AppTypography.titleMedium.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.white,
+                        Flexible(
+                          child: Text(
+                            'Book in under a minute',
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.titleMedium.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.white,
+                            ),
                           ),
                         ),
                         Gap(4.w),
@@ -1711,14 +1714,18 @@ class _GlossyGradientButtonState extends State<_GlossyGradientButton> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      widget.label,
-                      style: AppTypography.buttonText.copyWith(
-                        color: AppColors.white,
-                        fontSize: 15.sp,
-                        fontWeight: FontWeight.w700,
+                    Flexible(
+                      child: Text(
+                        widget.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.buttonText.copyWith(
+                          color: AppColors.white,
+                          fontSize: 15.sp,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
-                      textAlign: TextAlign.center,
                     ),
                     Gap(AppSpacing.sm.w),
                     Container(
@@ -2580,9 +2587,6 @@ class _HorizontalVendorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final double displayDistance =
-        vendor.distanceKm ?? ((vendor.id.hashCode.abs() % 20) + 5) / 10;
-
     return AppCard.outlined(
       onTap: onTap,
       padding: EdgeInsets.zero,
@@ -2647,7 +2651,7 @@ class _HorizontalVendorCard extends StatelessWidget {
                           const Gap(4),
                           Expanded(
                             child: Text(
-                              '${vendor.averageRating ?? 4.8} · ${displayDistance.toStringAsFixed(1)} km',
+                              [vendor.ratingLabel, if (vendor.distanceLabel != null) vendor.distanceLabel!].join(' · '),
                               style: AppTypography.caption.copyWith(
                                 color: AppColors.textSecondary,
                               ),

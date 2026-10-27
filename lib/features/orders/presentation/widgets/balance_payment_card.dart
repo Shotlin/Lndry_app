@@ -48,8 +48,12 @@ class BalancePaymentCard extends StatelessWidget {
             children: [
               Icon(AppIcons.walletOutlined, color: AppColors.primary, size: 20.r),
               Gap(AppSpacing.cardGap.h),
-              Text('Balance Due', style: AppTypography.titleSmall.copyWith(fontWeight: FontWeight.bold)),
-              const Spacer(),
+              Expanded(
+                child: Text('Balance Due',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.titleSmall.copyWith(fontWeight: FontWeight.bold)),
+              ),
               Text(
                 balance.toCurrencyDecimal,
                 style: AppTypography.titleMedium.copyWith(color: AppColors.primary, fontWeight: FontWeight.bold),
@@ -193,7 +197,13 @@ class _BalancePaySheetContentState extends ConsumerState<_BalancePaySheetContent
       if (!mounted) return;
       if (!verifyResult.success) {
         setState(() => _isProcessing = false);
-        AppSnackBar.showError(context, 'Payment verification failed.');
+        AppSnackBar.showError(
+          context,
+          verifyResult.message ??
+              'We could not confirm the payment yet. If money was deducted, '
+                  'your balance will update automatically within a few minutes '
+                  '— please do not pay again.',
+        );
         return;
       }
       _finishWithSuccess('Online Payment');
@@ -202,7 +212,9 @@ class _BalancePaySheetContentState extends ConsumerState<_BalancePaySheetContent
         setState(() => _isProcessing = false);
         AppSnackBar.showError(
           context,
-          'Payment captured, but verification failed. Please contact support if the balance still shows as due.',
+          'We could not reach the server to confirm your payment. If money was '
+              'deducted, your balance will update automatically within a few '
+              'minutes — please do not pay again.',
         );
       }
     }

@@ -134,6 +134,10 @@ abstract interface class CustomerRepository {
     required List<QuoteGarmentLine> garmentLines,
     double? estimatedWeightKg,
     bool assisted = false,
+
+    /// The address the customer is ordering to. The server checks the laundry
+    /// really serves THAT address (not just the default one).
+    String? addressId,
   });
 
   /// Prepare an order draft before payment. Returns the draft ID and payable amount.
@@ -180,6 +184,10 @@ abstract interface class CustomerRepository {
     required String razorpaySignature,
     String? orderDraftId,
   });
+
+  /// Ask the server where a checkout's payment stands (it checks the gateway
+  /// itself), by order draft id.
+  Future<PaymentStatusResult> getPaymentStatus({String? orderDraftId, String? orderId});
 
   // ── Wallet ─────────────────────────────────────────────────────────────────
   /// Current wallet balance.
@@ -667,6 +675,7 @@ class PaymentVerificationResult {
     this.razorpayPaymentId,
     this.orderId,
     this.status,
+    this.message,
   });
 
   final bool success;
@@ -674,6 +683,47 @@ class PaymentVerificationResult {
   final String? razorpayPaymentId;
   final String? orderId;
   final String? status;
+
+  /// The server's explanation when [success] is false (shown to the customer).
+  final String? message;
+}
+
+/// Where a checkout's payment stands, as the SERVER sees it. Razorpay's own
+/// "failed" / "cancelled" callbacks fire when its sheet closes, but a bank can
+/// still be completing the debit — only the server (which asks the gateway)
+/// knows. See Lndry_backend GET /payments/status.
+enum PaymentStatusKind { paid, confirming, failed, expired, refunded, none }
+
+class PaymentStatusResult {
+  const PaymentStatusResult({
+    required this.kind,
+    this.message,
+    this.orderId,
+    this.failureCode,
+  });
+
+  final PaymentStatusKind kind;
+
+  /// Customer-readable reason / reassurance, from the server.
+  final String? message;
+  final String? orderId;
+  final String? failureCode;
+
+  /// Nothing more will change without the customer acting.
+  bool get isFinal =>
+      kind == PaymentStatusKind.paid ||
+      kind == PaymentStatusKind.failed ||
+      kind == PaymentStatusKind.expired ||
+      kind == PaymentStatusKind.refunded;
+
+  static PaymentStatusKind parseKind(String? raw) => switch ((raw ?? '').toUpperCase()) {
+        'PAID' => PaymentStatusKind.paid,
+        'CONFIRMING' => PaymentStatusKind.confirming,
+        'FAILED' => PaymentStatusKind.failed,
+        'EXPIRED' => PaymentStatusKind.expired,
+        'REFUNDED' => PaymentStatusKind.refunded,
+        _ => PaymentStatusKind.none,
+      };
 }
 
 // ── Wallet Types ─────────────────────────────────────────────────────────────

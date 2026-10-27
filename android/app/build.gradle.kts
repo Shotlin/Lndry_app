@@ -5,8 +5,15 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
-    // Firebase (push notifications): reads android/app/google-services.json
-    id("com.google.gms.google-services")
+}
+
+// Firebase (push notifications) reads android/app/google-services.json, which is
+// git-ignored. Without it the build still works but the app has NO push
+// notifications, so this is loud on purpose.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+} else {
+    logger.warn("WARNING: android/app/google-services.json is missing - building WITHOUT push notifications")
 }
 
 val keystorePropertiesFile = rootProject.file("key.properties")

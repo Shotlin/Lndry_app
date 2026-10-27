@@ -318,10 +318,14 @@ class _PriceRow extends StatelessWidget {
     final defaultStyle = AppTypography.bodySmall.copyWith(
       color: AppColors.onSurfaceVariant,
     );
+    // The label may be long ("Advance payment (collected now)") and the screen
+    // narrow: let the label wrap inside the space left by the amount instead of
+    // pushing the amount off the edge.
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: labelStyle ?? defaultStyle),
+        Expanded(child: Text(label, style: labelStyle ?? defaultStyle)),
+        const SizedBox(width: 8),
         Text(value, style: valueStyle ?? defaultStyle),
       ],
     );

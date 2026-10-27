@@ -579,17 +579,20 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
                                           color: AppColors.rating, size: 13.r),
                                       const Gap(3),
                                       Text(
-                                        '${_vendor!.averageRating ?? 4.8}',
+                                        _vendor!.ratingLabel,
                                         style: AppTypography.bodySmall.copyWith(
                                           fontWeight: FontWeight.bold,
                                           color: AppColors.textBlack,
                                         ),
                                       ),
                                       const Gap(4),
-                                      Text(
-                                        '(${_vendor!.reviewCount} reviews)  •  ${_vendor!.distanceKm != null ? '${_vendor!.distanceKm!.toStringAsFixed(1)} km away' : 'Nearby'}',
-                                        style: AppTypography.caption.copyWith(
-                                            color: AppColors.textSecondary),
+                                      Flexible(
+                                        child: Text(
+                                          '(${_vendor!.reviewCount} reviews)  •  ${_vendor!.distanceKm != null ? '${_vendor!.distanceKm!.toStringAsFixed(1)} km away' : 'Nearby'}',
+                                          overflow: TextOverflow.ellipsis,
+                                          style: AppTypography.caption.copyWith(
+                                              color: AppColors.textSecondary),
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -1281,10 +1284,13 @@ class _GoogleReviewsCard extends StatelessWidget {
                         ),
                         Gap(4.w),
                       ],
-                      Text(
-                        '${vendor.googleReviewCount ?? 0} Google reviews',
-                        style: AppTypography.caption
-                            .copyWith(color: AppColors.textSecondary),
+                      Flexible(
+                        child: Text(
+                          '${vendor.googleReviewCount ?? 0} Google reviews',
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.caption
+                              .copyWith(color: AppColors.textSecondary),
+                        ),
                       ),
                     ],
                   ),

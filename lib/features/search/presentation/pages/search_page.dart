@@ -960,9 +960,6 @@ class _ListVendorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final double displayDistance =
-        vendor.distanceKm ?? ((vendor.id.hashCode.abs() % 20) + 5) / 10;
-    final int reviewCount = (vendor.id.hashCode.abs() % 200) + 40;
 
     return Container(
       decoration: BoxDecoration(
@@ -1041,7 +1038,7 @@ class _ListVendorCard extends StatelessWidget {
                           const Gap(3),
                           Expanded(
                             child: Text(
-                              '${vendor.averageRating ?? 4.8} ($reviewCount)  •  ${displayDistance.toStringAsFixed(1)} km',
+                              [vendor.ratingWithCountLabel, if (vendor.distanceLabel != null) vendor.distanceLabel!].join('  •  '),
                               style: AppTypography.caption.copyWith(
                                 color: AppColors.textSecondary,
                               ),

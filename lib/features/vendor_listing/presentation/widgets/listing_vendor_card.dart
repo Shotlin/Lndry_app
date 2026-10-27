@@ -17,9 +17,7 @@ class ListingVendorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final distanceLabel = vendor.distanceKm == null
-        ? 'Nearby'
-        : '${vendor.distanceKm!.toStringAsFixed(1)} km';
+    final distanceLabel = vendor.distanceLabel ?? 'Nearby';
 
     return AppCard.outlined(
       onTap: onTap,

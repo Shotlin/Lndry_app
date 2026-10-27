@@ -229,8 +229,9 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
     }
   }
 
-  void _showAddressModal() {
-    AppBottomSheet.show<void>(
+  Future<void> _showAddressModal() async {
+    final addressWhenOpened = _selectedAddress?.id;
+    await AppBottomSheet.show<void>(
       context: context,
       title: 'Select Delivery Address',
       primaryActionLabel: 'Confirm Address',
@@ -293,6 +294,22 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
         ),
       ),
     );
+
+    // The customer picked a different address and confirmed. Everything the
+    // checkout holds — delivery fee, serviceability, the order draft — was
+    // computed for the OLD address, so drop it and ask the server again right
+    // now. Otherwise the screen keeps showing the old price and the customer
+    // only finds out the new address is out of range after tapping "Pay".
+    if (!mounted || !_isApiMode) return;
+    final changed = _selectedAddress?.id != addressWhenOpened;
+    if (!changed || (_selectedAddress?.id ?? '').isEmpty) return;
+    setState(() {
+      _orderDraftId = null;
+      _backendPricesLoaded = false;
+    });
+    if (_isExpressPickup || _selectedSlot != null) {
+      await _refreshBackendQuote(ref.read(cartStateProvider));
+    }
   }
 
   String _checkoutDate() {
@@ -526,6 +543,7 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
         vendorServiceId: quoteInput.vendorServiceId,
         garmentLines: quoteInput.lines,
         assisted: _isAssisted,
+        addressId: address.id,
       );
       if (quote.quoteId.isEmpty) {
         throw const FormatException('Quote creation failed.');
@@ -585,7 +603,7 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
         setState(() => _couponApplied = false);
       }
       if (!silent) {
-        AppSnackBar.showError(context, e.message);
+        AppSnackBar.showError(context, _friendlyQuoteError(e));
       }
       return false;
     } catch (e) {
@@ -597,6 +615,26 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
         );
       }
       return false;
+    }
+  }
+
+  /// Plain-language reasons for the errors a customer can actually fix.
+  String _friendlyQuoteError(ApiException e) {
+    switch (e.code) {
+      case 'VENDOR_OUT_OF_RADIUS':
+      case 'OUT_OF_RADIUS':
+        return 'This laundry does not serve the selected address. '
+            'Please choose another address or another laundry.';
+      case 'ADDRESS_NOT_FOUND':
+        return 'That address is no longer available. Please pick another one.';
+      case 'VENDOR_UNAVAILABLE':
+      case 'VENDOR_NOT_ELIGIBLE':
+        return 'This laundry is not taking orders right now. '
+            'Please try another laundry.';
+      case 'SLOT_FULL':
+        return 'That pickup slot just filled up. Please choose another slot.';
+      default:
+        return e.message;
     }
   }
 
@@ -2251,10 +2289,13 @@ class _CheckoutPageState extends ConsumerState<CheckoutPage> {
               Icon(Icons.verified_user_rounded,
                   size: 12.r, color: AppColors.onSurfaceVariant),
               Gap(4.w),
-              Text(
-                '100% secure payments powered by Razorpay',
-                style: AppTypography.caption
-                    .copyWith(color: AppColors.onSurfaceVariant),
+              Flexible(
+                child: Text(
+                  '100% secure payments powered by Razorpay',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.caption
+                      .copyWith(color: AppColors.onSurfaceVariant),
+                ),
               ),
             ],
           ),

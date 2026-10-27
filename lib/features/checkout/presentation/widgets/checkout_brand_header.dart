@@ -49,10 +49,13 @@ class CheckoutBrandHeader extends StatelessWidget implements PreferredSizeWidget
                     Icon(Icons.lock_rounded,
                         size: 11.r, color: AppColors.onSurfaceVariant),
                     const Gap(4),
-                    Text(
-                      subtitle,
-                      style: AppTypography.caption
-                          .copyWith(color: AppColors.onSurfaceVariant),
+                    Flexible(
+                      child: Text(
+                        subtitle,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.caption
+                            .copyWith(color: AppColors.onSurfaceVariant),
+                      ),
                     ),
                   ],
                 ),

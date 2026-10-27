@@ -31,9 +31,13 @@ class PaymentStatusCard extends StatelessWidget {
           children: [
             Icon(AppIcons.payment, color: AppColors.primary, size: 20.r),
             Gap(AppSpacing.cardGap.h),
-            Text('Payment: ${order.paymentMethod.label}',
-                style: AppTypography.labelMedium),
-            const Spacer(),
+            Expanded(
+              child: Text('Payment: ${order.paymentMethod.label}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.labelMedium),
+            ),
+            Gap(AppSpacing.cardGap.h),
             StatusBadge(
               label: order.isPaid ? 'Paid' : 'Unpaid',
               color: order.isPaid ? AppColors.success : AppColors.warning,

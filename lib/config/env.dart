@@ -58,21 +58,28 @@ abstract final class Env {
 
   // ── Auto-Fill OTP for Testing ─────────────────────────────────────────────
   /// When true, the OTP verification screen automatically populates with 123456
-  /// and auto-submits the form. Only active in development/debug builds.
-  static const bool autoFillOtpForTesting = true;
+  /// and auto-submits the form. OFF unless a developer opts in with
+  /// `--dart-define=AUTOFILL_TEST_OTP=true` — it used to be hard-coded on, so every
+  /// debug/profile build quietly behaved unlike the shipped app.
+  static const bool autoFillOtpForTesting =
+      bool.fromEnvironment('AUTOFILL_TEST_OTP', defaultValue: false);
   static bool get shouldAutoFillOtp =>
       !isReleaseBuild &&
       !Platform.environment.containsKey('FLUTTER_TEST') &&
-      (isDebugBuild || demoMode || autoFillOtpForTesting);
+      (demoMode || autoFillOtpForTesting);
 
   // ── Bypass Serviceability for Testing ────────────────────────────────────
   /// When true, the address selection flow skips the backend serviceability
   /// check and allows any location to be saved.
-  /// MUST be false (or guarded by !isReleaseBuild) in production.
-  static const bool bypassServiceabilityForTesting = true;
+  /// OFF by default so debug/profile builds enforce the same serviceability
+  /// rules as the release app (previously any non-release build skipped the
+  /// check, so an address could be saved that no laundry serves and Home then
+  /// showed nothing). Opt in only for UI work:
+  /// `--dart-define=BYPASS_SERVICEABILITY=true`. Never honoured in release.
+  static const bool bypassServiceabilityForTesting =
+      bool.fromEnvironment('BYPASS_SERVICEABILITY', defaultValue: false);
   static bool get shouldBypassServiceability =>
-      !isReleaseBuild &&
-      (isDebugBuild || demoMode || bypassServiceabilityForTesting);
+      !isReleaseBuild && (demoMode || bypassServiceabilityForTesting);
 
 
   // Build mode flags.

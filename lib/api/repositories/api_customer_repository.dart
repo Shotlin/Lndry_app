@@ -210,7 +210,18 @@ class ApiCustomerRepository implements CustomerRepository {
   @override
   Future<void> logout() async {
     try {
-      await _dio.post(ApiEndpoints.logout);
+      // Tell the server WHICH session is ending. Without the refresh token it
+      // signed this phone number out of every device and every LNDRY app
+      // (customer, Partner, rider) at once.
+      final refreshToken =
+          await _storage.getSecure(AppConstants.keyRefreshToken);
+      await _dio.post(
+        ApiEndpoints.logout,
+        data: <String, dynamic>{
+          if (refreshToken != null && refreshToken.isNotEmpty)
+            'refreshToken': refreshToken,
+        },
+      );
     } catch (_) {
       // Best-effort; always clear local session
     }
@@ -822,8 +833,30 @@ class ApiCustomerRepository implements CustomerRepository {
       return PaymentVerificationResult(
         success: false,
         status: e.code,
+        message: e.message,
       );
     }
+  }
+
+  @override
+  Future<PaymentStatusResult> getPaymentStatus({
+    String? orderDraftId,
+    String? orderId,
+  }) async {
+    final resp = await _dio.get(
+      ApiEndpoints.paymentStatus,
+      queryParameters: <String, dynamic>{
+        if (orderDraftId != null) 'order_draft_id': orderDraftId,
+        if (orderId != null) 'order_id': orderId,
+      },
+    );
+    final data = _extractData(resp.data as Map<String, dynamic>);
+    return PaymentStatusResult(
+      kind: PaymentStatusResult.parseKind(data['status'] as String?),
+      message: data['message'] as String?,
+      orderId: data['orderId'] as String?,
+      failureCode: data['failureCode'] as String?,
+    );
   }
 
   // ── Wallet ─────────────────────────────────────────────────────────────────
@@ -1040,9 +1073,11 @@ class ApiCustomerRepository implements CustomerRepository {
     required List<QuoteGarmentLine> garmentLines,
     double? estimatedWeightKg,
     bool assisted = false,
+    String? addressId,
   }) async {
     final body = <String, dynamic>{
       'vendor_id': vendorId,
+      if (addressId != null && addressId.isNotEmpty) 'address_id': addressId,
       // "Book With Expert Check": nothing is chosen, the laundry prices it
       // after inspecting the garments.
       if (assisted) 'booking_type': 'ASSISTED',

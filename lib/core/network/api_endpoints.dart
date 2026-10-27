@@ -72,6 +72,7 @@ abstract final class ApiEndpoints {
   static const String createPaymentOrder = '/payments/create-order';
   static const String verifyPayment = '/payments/verify';
   static const String paymentHistory = '/payments/history';
+  static const String paymentStatus = '/payments/status';
   static const String payWithWallet = '/payments/pay-with-wallet';
 
   // ── Wallet ──────────────────────────────────────────────────────────────────

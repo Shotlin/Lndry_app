@@ -553,7 +553,12 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
 
     // ── Step 2: pincode availability check ────────────────────────────────────
     try {
-      final pincodePayload = {'pincode': pincode};
+      final pincodePayload = {
+        'pincode': pincode,
+        // Lets the server confirm availability from the exact map pin.
+        'lat': position.latitude,
+        'lng': position.longitude,
+      };
       if (kDebugMode) {
         debugPrint(
           '[ServiceabilityCheck] POST ${ApiEndpoints.validatePincode} '

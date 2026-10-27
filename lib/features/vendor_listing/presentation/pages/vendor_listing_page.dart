@@ -77,11 +77,9 @@ class _VendorListingPageState extends ConsumerState<VendorListingPage> {
     }
 
     // Apply Filter: Max Distance
-    list = list.where((v) {
-      final double distance =
-          v.distanceKm ?? ((v.id.hashCode.abs() % 40) + 10) / 10;
-      return distance <= _maxDistance;
-    }).toList();
+    // A laundry whose distance the server could not compute is kept (we do not
+    // know it is too far) and sorted last, instead of being given a made-up distance.
+    list = list.where((v) => v.distanceKm == null || v.distanceKm! <= _maxDistance).toList();
 
     // Apply Sorting
     switch (_activeSort) {
@@ -90,13 +88,7 @@ class _VendorListingPageState extends ConsumerState<VendorListingPage> {
             (b.averageRating ?? 0.0).compareTo(a.averageRating ?? 0.0));
         break;
       case 'distance':
-        list.sort((a, b) {
-          final double distA =
-              a.distanceKm ?? ((a.id.hashCode.abs() % 40) + 10) / 10;
-          final double distB =
-              b.distanceKm ?? ((b.id.hashCode.abs() % 40) + 10) / 10;
-          return distA.compareTo(distB);
-        });
+        list.sort((a, b) => a.distanceForSort.compareTo(b.distanceForSort));
         break;
       case 'price_low':
         list.sort((a, b) => a.minOrderAmount.compareTo(b.minOrderAmount));

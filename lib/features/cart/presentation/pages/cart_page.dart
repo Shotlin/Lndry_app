@@ -645,7 +645,7 @@ class _CartVendorCard extends StatelessWidget {
                     Icon(AppIcons.star, color: AppColors.rating, size: 12.r),
                     const Gap(3),
                     Text(
-                      '${vendor.averageRating ?? 4.8}',
+                      vendor.ratingLabel,
                       style: AppTypography.caption.copyWith(
                         fontWeight: FontWeight.bold,
                         color: isDark

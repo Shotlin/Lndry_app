@@ -41,7 +41,7 @@ class AddressServiceabilityValidator {
     try {
       final pincodeResponse = await _dio.post<dynamic>(
         ApiEndpoints.validatePincode,
-        data: {'pincode': pincode},
+        data: {'pincode': pincode, 'lat': lat, 'lng': lng},
       );
       final pincodeData = _dataMap(pincodeResponse);
       final available = pincodeData['available'] as bool? ?? false;

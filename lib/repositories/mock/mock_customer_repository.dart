@@ -559,6 +559,15 @@ class MockCustomerRepository implements CustomerRepository {
     );
   }
 
+  @override
+  Future<PaymentStatusResult> getPaymentStatus({
+    String? orderDraftId,
+    String? orderId,
+  }) async {
+    await _delay(fast: true);
+    return PaymentStatusResult(kind: PaymentStatusKind.paid, orderId: orderId ?? 'ord_mock');
+  }
+
   // ── Wallet (mock) ─────────────────────────────────────────────────────────
 
   @override
@@ -767,6 +776,7 @@ class MockCustomerRepository implements CustomerRepository {
     required List<QuoteGarmentLine> garmentLines,
     double? estimatedWeightKg,
     bool assisted = false,
+    String? addressId,
   }) async {
     await _delay(fast: true);
     if (assisted) {

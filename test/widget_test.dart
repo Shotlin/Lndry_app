@@ -108,7 +108,8 @@ void main() {
     await tester.pump();
     expect(find.byType(LndryApp), findsOneWidget);
     expect(
-        find.text('What would you like us to care for today?'), findsOneWidget);
+        // Drawn twice on purpose: an outline pass and a fill pass.
+        find.text('What would you like us to care for today?'), findsNWidgets(2));
     expect(find.text('Send OTP'), findsNothing);
   });
 

@@ -8,6 +8,8 @@ import '../../../../core/extensions/extensions.dart';
 import '../../../../core/router/app_routes.dart';
 import '../../../../models/models.dart';
 import '../../../../repositories/repositories.dart';
+import '../../../address/address_serviceability_validator.dart';
+import '../../../home/presentation/providers/home_providers.dart';
 
 class SavedAddressesPage extends ConsumerStatefulWidget {
   const SavedAddressesPage({super.key});
@@ -42,14 +44,45 @@ class _SavedAddressesPageState extends ConsumerState<SavedAddressesPage> {
     }
   }
 
+  /// Everything on Home / Search / vendor pages is computed from the DEFAULT
+  /// address. Changing or deleting it without refreshing those left the app
+  /// showing the previous address's laundries until it was restarted.
+  void _refreshAddressDependents() {
+    ref
+      ..invalidate(currentAddressProvider)
+      ..invalidate(homeVendorsProvider)
+      ..invalidate(homeCategoriesProvider);
+  }
+
   Future<void> _onSetDefault(AddressModel address) async {
     setState(() => _isLoading = true);
     final repo = ref.read(customerRepositoryProvider);
     try {
       await repo.setDefaultAddress(address.id);
+      _refreshAddressDependents();
       await _loadAddresses();
-    } catch (_) {
-      if (mounted) setState(() => _isLoading = false);
+      if (!mounted) return;
+      AppSnackBar.showSuccess(context, 'Default address updated');
+
+      // Tell them straight away if no laundry reaches this address, instead of
+      // letting them discover an empty Home screen.
+      final coords = address.coordinates;
+      if (coords != null && address.pincode.isNotEmpty) {
+        final problem = await ref.read(addressServiceabilityValidatorProvider).validate(
+              lat: coords.latitude,
+              lng: coords.longitude,
+              pincode: address.pincode,
+            );
+        if (mounted && problem != null) AppSnackBar.showError(context, problem);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        AppSnackBar.showError(
+          context,
+          "Couldn't change your default address. Please check your connection and try again.",
+        );
+      }
     }
   }
 
@@ -68,9 +101,16 @@ class _SavedAddressesPageState extends ConsumerState<SavedAddressesPage> {
       final repo = ref.read(customerRepositoryProvider);
       try {
         await repo.deleteAddress(address.id);
+        _refreshAddressDependents();
         await _loadAddresses();
       } catch (_) {
-        if (mounted) setState(() => _isLoading = false);
+        if (mounted) {
+          setState(() => _isLoading = false);
+          AppSnackBar.showError(
+            context,
+            "Couldn't remove that address. Please try again.",
+          );
+        }
       }
     }
   }
@@ -89,6 +129,7 @@ class _SavedAddressesPageState extends ConsumerState<SavedAddressesPage> {
       ),
     );
     if (result != null) {
+      _refreshAddressDependents();
       await _loadAddresses();
     }
   }

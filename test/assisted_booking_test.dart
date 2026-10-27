@@ -77,6 +77,7 @@ class _Repo extends MockCustomerRepository {
     required List<QuoteGarmentLine> garmentLines,
     double? estimatedWeightKg,
     bool assisted = false,
+    String? addressId,
   }) {
     quoteCalls.add(assisted);
     return super.createQuote(
@@ -85,6 +86,7 @@ class _Repo extends MockCustomerRepository {
       garmentLines: garmentLines,
       estimatedWeightKg: estimatedWeightKg,
       assisted: assisted,
+      addressId: addressId,
     );
   }
 

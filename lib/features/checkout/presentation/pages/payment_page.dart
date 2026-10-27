@@ -17,6 +17,7 @@ import '../controllers/razorpay_payment_controller.dart';
 import '../providers/assisted_booking_provider.dart';
 import '../providers/checkout_content_provider.dart';
 import '../../../../core/network/friendly_error.dart';
+import '../widgets/payment_status_sheet.dart';
 
 /// Display-only fallback for the "Pay Now (Advance)" figure while the real
 /// payment order is still loading from the server — the actual Razorpay
@@ -240,10 +241,9 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
         return;
       }
 
-      _paymentFinalized = true;
       ref.invalidate(walletProvider);
       ref.invalidate(walletTransactionsProvider);
-      await _placeOrderAfterVerifiedPayment(session: session, cart: null);
+      await _finishPaidOrder();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -349,12 +349,17 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
           _isProcessing = false;
           _isVerifyingPayment = false;
         });
-        AppSnackBar.showError(context, 'Payment verification failed.');
+        // Not a dead end: the money may well have been taken. Ask the server
+        // what really happened (it asks the gateway) and act on the answer.
+        await _reconcileWithServer(
+          fallbackMessage: verifyResult.message ??
+              'Payment verification failed. If money was deducted it will be '
+                  'confirmed automatically.',
+        );
         return;
       }
 
-      _paymentFinalized = true;
-      await _placeOrderAfterVerifiedPayment(session: session, cart: null);
+      await _finishPaidOrder();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -369,7 +374,7 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
     }
   }
 
-  void _handlePaymentFailure(PaymentFailureResponse response) {
+  Future<void> _handlePaymentFailure(PaymentFailureResponse response) async {
     if (_paymentFinalized) return;
 
     final isCancel = response.code == 2 ||
@@ -387,12 +392,112 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
       _verificationRetryPending = false;
     });
 
-    AppSnackBar.showError(
-      context,
-      isCancel
+    // Razorpay reports "failed" / "cancelled" the moment its sheet closes —
+    // including when a UPI approval or net-banking confirmation is still in
+    // progress and about to SUCCEED. Believing it made customers retry and pay
+    // twice, or walk away from a payment that was in fact captured. Ask the
+    // server (which asks the gateway) before telling the customer anything.
+    await _reconcileWithServer(
+      fallbackMessage: isCancel
           ? 'Payment cancelled. You can retry safely.'
           : 'Payment failed. Please try another payment method.',
     );
+  }
+
+  /// What does the server say happened to this checkout's payment? Acts on it:
+  /// finishes the booking if it was paid, waits if the bank is still
+  /// confirming, or shows the real reason if it failed.
+  Future<void> _reconcileWithServer({required String fallbackMessage}) async {
+    final draftId = _pendingSession?.orderDraftId;
+    if (draftId == null || draftId.isEmpty) {
+      if (mounted) AppSnackBar.showError(context, fallbackMessage);
+      return;
+    }
+
+    PaymentStatusResult? status;
+    try {
+      status = await ref
+          .read(customerRepositoryProvider)
+          .getPaymentStatus(orderDraftId: draftId)
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      // Could not reach the server: do not claim success or failure.
+    }
+    if (!mounted) return;
+
+    switch (status?.kind) {
+      case PaymentStatusKind.paid:
+        await _finishPaidOrder();
+      case PaymentStatusKind.confirming:
+        await _waitForConfirmation();
+      case PaymentStatusKind.failed:
+      case PaymentStatusKind.expired:
+      case PaymentStatusKind.refunded:
+        AppSnackBar.showError(
+          context,
+          (status!.message != null && status.message!.isNotEmpty)
+              ? status.message!
+              : fallbackMessage,
+        );
+      case PaymentStatusKind.none:
+      case null:
+        AppSnackBar.showError(context, fallbackMessage);
+    }
+  }
+
+  /// The bank has not finished yet. Wait (visibly, without alarming the
+  /// customer) and act on the final answer.
+  Future<void> _waitForConfirmation() async {
+    final draftId = _pendingSession?.orderDraftId;
+    if (draftId == null || draftId.isEmpty || !mounted) return;
+
+    final result = await PaymentStatusSheet.show(context, orderDraftId: draftId);
+    if (!mounted) return;
+
+    if (result == null) {
+      // Customer chose to stop waiting. The server keeps going and will
+      // notify them; send them where the order will appear.
+      context.go(AppRoutes.orders);
+      return;
+    }
+    switch (result.kind) {
+      case PaymentStatusKind.paid:
+        await _finishPaidOrder();
+      case PaymentStatusKind.failed:
+      case PaymentStatusKind.expired:
+      case PaymentStatusKind.refunded:
+        AppSnackBar.showError(
+          context,
+          result.message ?? 'Payment could not be completed. Please try again.',
+        );
+      case PaymentStatusKind.confirming:
+      case PaymentStatusKind.none:
+        break;
+    }
+  }
+
+  /// The payment is confirmed: turn it into the order and open it. Safe to call
+  /// repeatedly — the server returns the existing order if it was already
+  /// created (by the webhook, by recovery, or by an earlier tap).
+  Future<void> _finishPaidOrder() async {
+    if (!mounted) return;
+    setState(() {
+      _isProcessing = true;
+      _isVerifyingPayment = true;
+    });
+    try {
+      await _placeOrderAfterVerifiedPayment(session: _pendingSession, cart: null);
+    } catch (_) {
+      // Money is taken but the order call failed (network, server hiccup). The
+      // server finishes the booking on its own — wait for it instead of leaving
+      // the customer on a dead "Verify" button.
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
+        _isVerifyingPayment = false;
+      });
+      await _waitForConfirmation();
+    }
   }
 
   void _handleExternalWallet(ExternalWalletResponse response) {
@@ -449,6 +554,10 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
     }
 
     final placedOrder = await repo.placeOrder(placeRequest);
+    // Only now is the payment truly "finished" — setting this earlier left the
+    // screen dead (Pay and Verify both ignored) whenever placing the order
+    // failed after the money had been taken.
+    _paymentFinalized = true;
     // An assisted booking never used the cart, so leave whatever the customer
     // has in it alone.
     if (!(session?.isAssisted ?? false)) {
@@ -600,13 +709,16 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
 
                               Row(
                                 children: [
-                                  Text(
-                                    'Select Payment Method',
-                                    style: AppTypography.titleMedium.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                      color: isDark
-                                          ? AppColors.darkTextPrimary
-                                          : AppColors.lightTextPrimary,
+                                  Flexible(
+                                    child: Text(
+                                      'Select Payment Method',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: AppTypography.titleMedium.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: isDark
+                                            ? AppColors.darkTextPrimary
+                                            : AppColors.lightTextPrimary,
+                                      ),
                                     ),
                                   ),
                                   const Gap(8),
@@ -985,11 +1097,15 @@ class _SummaryLineItem extends StatelessWidget {
           ),
         ),
         const Gap(8),
-        Text(
-          valueText ?? amount.toCurrencyDecimal,
-          style: AppTypography.titleSmall.copyWith(
-            fontWeight: FontWeight.w700,
-            color: muted ? AppColors.onSurfaceVariant : primaryTextColor,
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 140.w),
+          child: Text(
+            valueText ?? amount.toCurrencyDecimal,
+            textAlign: TextAlign.end,
+            style: AppTypography.titleSmall.copyWith(
+              fontWeight: FontWeight.w700,
+              color: muted ? AppColors.onSurfaceVariant : primaryTextColor,
+            ),
           ),
         ),
       ],
@@ -1477,10 +1593,13 @@ class _PaymentBottomBar extends StatelessWidget {
                     Icon(Icons.lock_rounded,
                         size: 11.r, color: AppColors.onSurfaceVariant),
                     const Gap(4),
-                    Text(
-                      'Secure & encrypted',
-                      style: AppTypography.caption
-                          .copyWith(color: AppColors.onSurfaceVariant),
+                    Flexible(
+                      child: Text(
+                        'Secure & encrypted',
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.caption
+                            .copyWith(color: AppColors.onSurfaceVariant),
+                      ),
                     ),
                   ],
                 ),
