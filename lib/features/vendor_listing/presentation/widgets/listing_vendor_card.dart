@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import '../../../../shared/widgets/vendor_image.dart';
 import '../../../../core/design/design_system.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/extensions/extensions.dart';
@@ -40,14 +40,7 @@ class ListingVendorCard extends StatelessWidget {
                     tag: 'vendor-cover-${vendor.id}',
                     child: Material(
                       type: MaterialType.transparency,
-                      child: vendor.coverImageUrl.isNotNullOrBlank
-                          ? CachedNetworkImage(
-                              imageUrl: vendor.coverImageUrl!,
-                              fit: BoxFit.cover,
-                              errorWidget: (_, __, ___) =>
-                                  _buildPlaceholderImage(),
-                            )
-                          : _buildPlaceholderImage(),
+                      child: VendorImage(url: vendor.coverImageUrl),
                     ),
                   ),
                 ),

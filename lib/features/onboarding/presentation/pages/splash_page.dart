@@ -1,3 +1,4 @@
+import '../../../home/presentation/providers/home_providers.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/design/design_system.dart';
 import '../../../../core/services/storage_service.dart';
@@ -32,6 +33,15 @@ class _SplashPageState extends ConsumerState<SplashPage>
       CurvedAnimation(parent: _logoController, curve: AppCurves.standard),
     );
     _logoController.forward();
+
+    // Warm the home screen's data while the splash plays so Home paints with
+    // content already in place instead of skeletons.
+    Future.microtask(() {
+      if (!mounted) return;
+      ref.read(homeCategoriesProvider);
+      ref.read(homeBannersProvider);
+      ref.read(homeVendorsProvider);
+    });
 
     // Minimum display time so the splash doesn't flash.
     Future.delayed(AppDurations.splash, () {

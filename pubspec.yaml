@@ -1,7 +1,7 @@
 name: lndry
 description: "LNDRY — A production-grade laundry marketplace connecting customers, vendors, and delivery partners."
 publish_to: "none"
-version: 1.0.2+20
+version: 1.0.2+23
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -108,6 +108,7 @@ flutter:
   assets:
     - assets/images/
     - assets/images/img/
+    - assets/images/categories/
     - assets/images/logo/
     - assets/images/wallet/
     - assets/images/referrals/

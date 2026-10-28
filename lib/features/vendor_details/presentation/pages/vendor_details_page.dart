@@ -1,3 +1,4 @@
+import '../../../../shared/widgets/vendor_image.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -512,18 +513,7 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
                                     ),
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(12.r),
-                                      child: _vendor!.logoUrl.isNotNullOrBlank
-                                          ? CachedNetworkImage(
-                                              imageUrl: _vendor!.logoUrl!,
-                                              fit: BoxFit.cover,
-                                            )
-                                          : Center(
-                                              child: Icon(
-                                                AppIcons.laundry,
-                                                color: AppColors.rating,
-                                                size: 26.r,
-                                              ),
-                                            ),
+                                      child: VendorImage(url: _vendor!.logoUrl, logo: true),
                                     ),
                                   ),
                                   const Gap(12),
@@ -623,12 +613,7 @@ class _VendorDetailsPageState extends ConsumerState<VendorDetailsPage>
                             width: 130.w,
                             height: 180.h,
                             color: AppColors.shimmerBase,
-                            child: CachedNetworkImage(
-                              imageUrl: _vendor!.coverImageUrl.isNotNullOrBlank
-                                  ? _vendor!.coverImageUrl!
-                                  : 'https://images.unsplash.com/photo-1545180856-f6d2e61df3fa?fit=crop&w=400&q=80',
-                              fit: BoxFit.cover,
-                            ),
+                            child: VendorImage(url: _vendor!.coverImageUrl),
                           ),
                         ],
                       ),
@@ -1601,6 +1586,13 @@ class _VendorServiceGroupHeader extends StatelessWidget {
                       width: 48.r,
                       height: 48.r,
                       fit: BoxFit.cover,
+                      errorWidget: (_, __, ___) => Container(
+                        width: 48.r,
+                        height: 48.r,
+                        color: AppColors.primaryContainer.withValues(alpha: 0.4),
+                        child: Icon(AppIcons.store,
+                            size: 24.r, color: AppColors.primary),
+                      ),
                     )
                   : Container(
                       width: 48.r,
@@ -1715,6 +1707,15 @@ class _VendorServiceCard extends StatelessWidget {
                     width: 48.r,
                     height: 48.r,
                     fit: BoxFit.cover,
+                    errorWidget: (_, __, ___) => BrandedServiceIcon(
+                      category: service.category,
+                      iconKey:
+                          service.tags.isNotEmpty ? service.tags.first : null,
+                      size: 48.r,
+                      iconSize: 26.r,
+                      backgroundColor:
+                          AppColors.primaryContainer.withValues(alpha: 0.4),
+                    ),
                   ),
                 )
               : BrandedServiceIcon(

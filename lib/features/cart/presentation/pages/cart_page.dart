@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import '../../../../shared/widgets/vendor_image.dart';
 import 'package:flutter/services.dart';
 
 import '../../../../core/auth/auth_gate.dart';
@@ -577,18 +577,7 @@ class _CartVendorCard extends StatelessWidget {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12.r),
-              child: vendor.logoUrl != null && vendor.logoUrl!.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: vendor.logoUrl!,
-                      fit: BoxFit.cover,
-                    )
-                  : Center(
-                      child: Icon(
-                        AppIcons.laundry,
-                        color: AppColors.primary,
-                        size: 24.r,
-                      ),
-                    ),
+              child: VendorImage(url: vendor.logoUrl, logo: true),
             ),
           ),
           const Gap(12),

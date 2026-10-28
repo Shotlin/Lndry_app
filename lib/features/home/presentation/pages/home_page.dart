@@ -1,3 +1,5 @@
+import '../../../../shared/widgets/vendor_image.dart';
+import '../../../../shared/widgets/category_image.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -113,6 +115,41 @@ class _HomePageState extends ConsumerState<HomePage> {
     };
   }
 
+  /// Category rail. Paints the bundled categories immediately and swaps in the
+  /// API list once it arrives, so there is never a skeleton or empty state.
+  Widget _buildCategoryRail(List<CategoryModel> cats) {
+    return ListView.separated(
+      padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 4.h),
+      clipBehavior: Clip.none,
+      scrollDirection: Axis.horizontal,
+      itemCount: cats.length,
+      separatorBuilder: (_, __) => const Gap(12),
+      itemBuilder: (context, idx) {
+        final cat = cats[idx];
+        final isSelected = _selectedCategoryIdx == idx;
+        return AnimatedScale(
+          scale: isSelected ? 1.05 : 1.0,
+          duration: const Duration(milliseconds: 200),
+          child: CategoryCard(
+            category: cat,
+            isSelected: isSelected,
+            onTap: () {
+              setState(() {
+                // Toggle off if same category tapped
+                if (_selectedCategoryIdx == idx) {
+                  _selectedCategoryIdx = -1;
+                } else {
+                  _selectedCategoryIdx = idx;
+                  context.push('/category/${cat.id}');
+                }
+              });
+            },
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final addressAsync = ref.watch(currentAddressProvider);
@@ -205,53 +242,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                     128.h,
                     MediaQuery.textScalerOf(context).scale(128.h),
                   ),
-                  child: categoriesAsync.when(
-                    data: (cats) => ListView.separated(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 20.w,
-                        vertical: 4.h,
-                      ),
-                      clipBehavior: Clip.none,
-                      scrollDirection: Axis.horizontal,
-                      itemCount: cats.length,
-                      separatorBuilder: (_, __) => const Gap(12),
-                      itemBuilder: (context, idx) {
-                        final cat = cats[idx];
-                        final isSelected = _selectedCategoryIdx == idx;
-                        return AnimatedScale(
-                          scale: isSelected ? 1.05 : 1.0,
-                          duration: const Duration(milliseconds: 200),
-                          child: CategoryCard(
-                            category: cat,
-                            isSelected: isSelected,
-                            onTap: () {
-                              setState(() {
-                                // Toggle off if same category tapped
-                                if (_selectedCategoryIdx == idx) {
-                                  _selectedCategoryIdx = -1;
-                                } else {
-                                  _selectedCategoryIdx = idx;
-                                  context.push('/category/${cat.id}');
-                                }
-                              });
-                            },
-                          ),
-                        );
-                      },
-                    ),
-                    loading: () => ListView.separated(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 20.w,
-                        vertical: 4.h,
-                      ),
-                      clipBehavior: Clip.none,
-                      scrollDirection: Axis.horizontal,
-                      itemCount: 5,
-                      separatorBuilder: (_, __) => const Gap(12),
-                      itemBuilder: (_, __) =>
-                          const AppSkeletonCard(width: 90, height: 110),
-                    ),
-                    error: (_, __) => const SizedBox.shrink(),
+                  child: _buildCategoryRail(
+                    categoriesAsync.valueOrNull ?? bundledCategories,
                   ),
                 ),
                 const Gap(12),
@@ -1238,7 +1230,10 @@ class _BannerPage extends ConsumerWidget {
                 fit: BoxFit.cover,
                 width: double.infinity,
                 height: double.infinity,
-                placeholder: (_, __) => const SizedBox.shrink(),
+                placeholder: (_, __) => _BannerFallbackText(
+                  title: banner.title,
+                  subtitle: hasSubtitle ? banner.subtitle : null,
+                ),
                 errorWidget: (_, __, ___) => _BannerFallbackText(
                   title: banner.title,
                   subtitle: hasSubtitle ? banner.subtitle : null,
@@ -2604,19 +2599,7 @@ class _HorizontalVendorCard extends StatelessWidget {
                 tag: 'vendor-cover-${vendor.id}',
                 child: Material(
                   type: MaterialType.transparency,
-                  child: vendor.coverImageUrl.isNotNullOrBlank
-                      ? CachedNetworkImage(
-                          imageUrl: vendor.coverImageUrl!,
-                          fit: BoxFit.cover,
-                        )
-                      : Container(
-                          color: AppColors.primaryContainer,
-                          child: Icon(
-                            AppIcons.store,
-                            size: 32.r,
-                            color: AppColors.primary,
-                          ),
-                        ),
+                  child: VendorImage(url: vendor.coverImageUrl),
                 ),
               ),
             ),
@@ -2878,7 +2861,10 @@ class _OfferBannerCard extends ConsumerWidget {
                 fit: BoxFit.cover,
                 width: double.infinity,
                 height: double.infinity,
-                placeholder: (_, __) => const SizedBox.shrink(),
+                placeholder: (_, __) => _BannerFallbackText(
+                  title: banner.title,
+                  subtitle: hasSubtitle ? banner.subtitle : null,
+                ),
                 errorWidget: (_, __, ___) => _BannerFallbackText(
                   title: banner.title,
                   subtitle: hasSubtitle ? banner.subtitle : null,

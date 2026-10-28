@@ -1,3 +1,5 @@
+import '../../../../shared/widgets/vendor_image.dart';
+import '../../../../shared/widgets/category_image.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:lndry/features/home/presentation/providers/home_providers.dart';
@@ -22,7 +24,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   String _activeFilter = 'nearest'; // nearest, top_rated, available, express, price
   bool _isLoading = false;
   List<VendorModel> _vendors = [];
-  List<CategoryModel> _categories = [];
+  List<CategoryModel> _categories = List.of(bundledCategories);
   bool _categoriesError = false;
 
   final SpeechToText _speech = SpeechToText();
@@ -637,7 +639,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                   const Gap(16),
 
                   // ── 3. Category Chips (icon + name + price) ──────────────────
-                  if (_categoriesError)
+                  if (_categoriesError && _categories.isEmpty)
                     Center(
                       child: Padding(
                         padding: EdgeInsets.symmetric(vertical: 16.h),
@@ -685,35 +687,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  if (cat.imageUrl.isNotNullOrBlank)
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(AppRadius.md.r),
-                                      child: CachedNetworkImage(
-                                        imageUrl: cat.imageUrl!,
-                                        width: 40.r,
-                                        height: 40.r,
-                                        fit: BoxFit.cover,
-                                        placeholder: (_, __) => BrandedServiceIcon(
-                                          iconKey: cat.icon,
-                                          size: 40.r,
-                                          iconSize: 22.r,
-                                          backgroundColor: AppColors.background,
-                                        ),
-                                        errorWidget: (_, __, ___) => BrandedServiceIcon(
-                                          iconKey: cat.icon,
-                                          size: 40.r,
-                                          iconSize: 22.r,
-                                          backgroundColor: AppColors.background,
-                                        ),
-                                      ),
-                                    )
-                                  else
-                                    BrandedServiceIcon(
-                                      iconKey: cat.icon,
-                                      size: 40.r,
-                                      iconSize: 22.r,
-                                      backgroundColor: AppColors.background,
-                                    ),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(AppRadius.md.r),
+                                    child: CategoryImage(category: cat, size: 40.r),
+                                  ),
                                   const Gap(8),
                                   Text(
                                     cat.name,
@@ -985,19 +962,7 @@ class _ListVendorCard extends StatelessWidget {
                     width: 72.r,
                     height: 72.r,
                     color: AppColors.shimmerBase,
-                    child: vendor.coverImageUrl.isNotNullOrBlank
-                        ? CachedNetworkImage(
-                            imageUrl: vendor.coverImageUrl!,
-                            fit: BoxFit.cover,
-                          )
-                        : Container(
-                            color: AppColors.primaryContainer,
-                            child: Icon(
-                              AppIcons.store,
-                              size: 28.r,
-                              color: AppColors.primary,
-                            ),
-                          ),
+                    child: VendorImage(url: vendor.coverImageUrl),
                   ),
                 ),
                 const Gap(12),

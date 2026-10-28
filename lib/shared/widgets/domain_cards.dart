@@ -6,6 +6,8 @@ import '../../core/widgets/app_card.dart';
 import '../../core/extensions/extensions.dart';
 import '../../models/models.dart';
 import 'service_icon.dart';
+import 'vendor_image.dart';
+import 'category_image.dart';
 import 'shared_widgets.dart';
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -83,9 +85,7 @@ class CategoryCard extends StatelessWidget {
 /// circle and its icon, no card, no label inside it.
 ///
 /// Renders the real category photo uploaded on the backend
-/// (`CategoryModel.imageUrl`) — per explicit instruction, no local/bundled
-/// icon substitution. The bundled icon only appears as a last-resort
-/// placeholder if the real image is missing or fails to load.
+/// (bundled in the app, see [CategoryImage]).
 class _CategoryArtwork extends StatelessWidget {
   const _CategoryArtwork({required this.category, required this.isSelected});
 
@@ -95,7 +95,6 @@ class _CategoryArtwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final size = 68.r;
-    final url = category.imageUrl ?? category.icon;
     return Container(
       width: size,
       height: size,
@@ -103,29 +102,12 @@ class _CategoryArtwork extends StatelessWidget {
         shape: BoxShape.circle,
         color: AppColors.transparent,
         border: Border.all(
-          color: isSelected
-              ? AppColors.primary
-              : AppColors.outlineVariant,
+          color: isSelected ? AppColors.primary : AppColors.outlineVariant,
           width: isSelected ? 2 : 1,
         ),
       ),
       child: ClipOval(
-        child: url.isNotNullOrBlank
-            ? CachedNetworkImage(
-                imageUrl: url,
-                fit: BoxFit.cover,
-                placeholder: (_, __) => const SizedBox.shrink(),
-                errorWidget: (_, __, ___) => Icon(
-                  AppIcons.tag,
-                  size: 28.r,
-                  color: AppColors.primary,
-                ),
-              )
-            : Icon(
-                AppIcons.tag,
-                size: 28.r,
-                color: AppColors.primary,
-              ),
+        child: CategoryImage(category: category, size: size),
       ),
     );
   }
@@ -168,17 +150,7 @@ class VendorCard extends StatelessWidget {
                     tag: 'vendor-cover-${vendor.id}',
                     child: Material(
                       type: MaterialType.transparency,
-                      child: vendor.coverImageUrl.isNotNullOrBlank
-                          ? CachedNetworkImage(
-                              imageUrl: vendor.coverImageUrl!,
-                              fit: BoxFit.cover,
-                              placeholder: (_, __) => const Center(
-                                child: CircularProgressIndicator(),
-                              ),
-                              errorWidget: (_, __, ___) =>
-                                  _buildPlaceholderImage(),
-                            )
-                          : _buildPlaceholderImage(),
+                      child: VendorImage(url: vendor.coverImageUrl),
                     ),
                   ),
                 ),

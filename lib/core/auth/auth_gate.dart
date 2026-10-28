@@ -109,7 +109,7 @@ class _LoginPromptSheet extends StatelessWidget {
       helper: 'Faster checkout, every time',
     ),
     _Benefit(
-      imagePath: 'assets/icons/lndry_rider_icon.png',
+      imagePath: 'assets/icons/lndry_deilvery.png',
       title: 'Track orders',
       helper: 'Real-time updates, always',
     ),
