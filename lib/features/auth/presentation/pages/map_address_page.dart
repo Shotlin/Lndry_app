@@ -7,11 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:gap/gap.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart' as geocoding;
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
-import 'package:latlong2/latlong.dart' as ll;
+import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 
 import '../../../../core/auth/auth_gate.dart';
 import '../../../../core/network/network.dart';
@@ -68,8 +67,21 @@ class MapAddressPage extends ConsumerStatefulWidget {
 }
 
 class _MapAddressPageState extends ConsumerState<MapAddressPage> {
-  static const _initialCenter = ll.LatLng(20.5937, 78.9629);
+  static const _initialCenter = ml.LatLng(20.5937, 78.9629);
   static const _initialZoom = 4.8;
+
+  /// Pitch used for the Ola 3D view — buildings only read as 3D when the
+  /// camera is tilted.
+  static const _tilt3d = 55.0;
+  static const _pinZoom = 17.0;
+
+  /// Plain raster fallback so the picker still works (flat) when Ola Maps
+  /// isn't configured in the dashboard or its style can't be fetched.
+  static const _osmFallbackStyle =
+      '{"version":8,"sources":{"osm":{"type":"raster","tiles":'
+      '["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],"tileSize":256,'
+      '"maxzoom":19,"attribution":"OpenStreetMap contributors"}},'
+      '"layers":[{"id":"osm","type":"raster","source":"osm"}]}';
 
   final _searchController = TextEditingController();
   final _addressLineController = TextEditingController();
@@ -77,8 +89,21 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
   final _landmarkController = TextEditingController();
 
   Timer? _searchDebounce;
-  final _mapController = MapController();
-  ll.LatLng? _pinPosition;
+  ml.MapLibreMapController? _mapCtl;
+  ml.LatLng? _pinPosition;
+
+  // Map step state. Editing a saved address (or tapping "Change location"
+  // from the details form) opens the map first, starting at the saved pin.
+  late bool _showMap;
+  String? _styleString;
+  bool _is3d = false;
+  bool _locationGranted = false;
+  String? _buildingSourceId;
+  String _buildingSourceLayer = 'building';
+  bool _hasExtrusionLayer = false;
+  ml.LatLng? _lastResolved;
+  int _resolveRequestId = 0;
+  bool _noSuggestions = false;
   String _selectedCity = '';
   String _selectedState = '';
   String _formattedAddress = '';
@@ -117,7 +142,7 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
       _formattedAddress = existing.line2 ?? '';
       final coords = existing.coordinates;
       if (coords != null) {
-        _pinPosition = ll.LatLng(coords.latitude, coords.longitude);
+        _pinPosition = ml.LatLng(coords.latitude, coords.longitude);
       }
     } else if (prefilled != null) {
       // Flat/house number deliberately left blank — a reverse-geocode can
@@ -128,10 +153,150 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
       _selectedCity = prefilled.city;
       _selectedState = prefilled.state;
       _formattedAddress = prefilled.formattedAddress;
-      _pinPosition = ll.LatLng(prefilled.lat, prefilled.lng);
-    } else {
+      _pinPosition = ml.LatLng(prefilled.lat, prefilled.lng);
+    }
+
+    _showMap = !_isFormOnly || widget.isEditingExisting;
+    // The saved/prefilled address is already resolved — don't let the first
+    // camera-idle overwrite its fields until the pin is actually moved.
+    _lastResolved = _pinPosition;
+    unawaited(_loadMapStyle());
+    if (_pinPosition == null && _showMap) {
       unawaited(_moveToCurrentLocation());
     }
+  }
+
+  /// Fetches the Ola vector style through the backend (key never ships in
+  /// the app) and inspects it for a buildings layer so 3D extrusion can be
+  /// added once the style loads. Falls back to flat OSM raster.
+  Future<void> _loadMapStyle() async {
+    String? styleUrl;
+    try {
+      final response = await _dio.get<dynamic>('/maps/ola/style-url');
+      final data = _dataMap(response);
+      if (data['configured'] == true) {
+        styleUrl = (data['styleUrl'] as String?)?.trim();
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Map] style-url failed: ${friendlyError(e)}');
+    }
+
+    if (styleUrl == null || styleUrl.isEmpty) {
+      if (mounted) setState(() => _styleString = _osmFallbackStyle);
+      return;
+    }
+
+    try {
+      final styleResponse = await Dio().get<dynamic>(
+        styleUrl,
+        options: Options(
+          responseType: ResponseType.json,
+          receiveTimeout: const Duration(seconds: 10),
+        ),
+      );
+      final style = styleResponse.data;
+      if (style is Map) {
+        final layers = (style['layers'] as List?) ?? const [];
+        for (final layer in layers) {
+          if (layer is! Map) continue;
+          if (layer['type'] == 'fill-extrusion') _hasExtrusionLayer = true;
+          if (_buildingSourceId == null &&
+              layer['source-layer'] == 'building' &&
+              layer['source'] is String) {
+            _buildingSourceId = layer['source'] as String;
+            _buildingSourceLayer = 'building';
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode)
+        debugPrint('[Map] style inspect failed: ${friendlyError(e)}');
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _styleString = styleUrl;
+      _is3d = true;
+    });
+  }
+
+  /// Adds extruded buildings on top of Ola's flat building footprints.
+  Future<void> _onStyleLoaded() async {
+    final ctl = _mapCtl;
+    if (ctl == null) return;
+    if (_is3d && !_hasExtrusionLayer && _buildingSourceId != null) {
+      try {
+        await ctl.addFillExtrusionLayer(
+          _buildingSourceId!,
+          'lndry-3d-buildings',
+          const ml.FillExtrusionLayerProperties(
+            fillExtrusionColor: '#dcd7ea',
+            fillExtrusionOpacity: 0.85,
+            fillExtrusionHeight: [
+              'coalesce',
+              ['get', 'render_height'],
+              ['get', 'height'],
+              12,
+            ],
+            fillExtrusionBase: [
+              'coalesce',
+              ['get', 'render_min_height'],
+              ['get', 'min_height'],
+              0,
+            ],
+          ),
+          sourceLayer: _buildingSourceLayer,
+          minzoom: 14,
+          enableInteraction: false,
+        );
+      } catch (e) {
+        if (kDebugMode)
+          debugPrint('[Map] 3D layer failed: ${friendlyError(e)}');
+      }
+    }
+    final pin = _pinPosition;
+    if (pin != null) await _flyTo(pin);
+  }
+
+  Future<void> _flyTo(ml.LatLng position, {double zoom = _pinZoom}) async {
+    final ctl = _mapCtl;
+    if (ctl == null) return;
+    await ctl.animateCamera(
+      ml.CameraUpdate.newCameraPosition(
+        ml.CameraPosition(
+          target: position,
+          zoom: zoom,
+          tilt: _is3d ? _tilt3d : 0,
+        ),
+      ),
+      duration: const Duration(milliseconds: 700),
+    );
+  }
+
+  /// The pin is fixed at the screen centre; whatever the camera settles on
+  /// is the selected location (drag the map to move it).
+  Future<void> _onCameraIdle() async {
+    final ctl = _mapCtl;
+    final position = ctl?.cameraPosition;
+    if (ctl == null || position == null) return;
+    // Ignore the country-level default view before a real location exists.
+    if (_pinPosition == null && position.zoom < 10) return;
+
+    final target = position.target;
+    final last = _lastResolved;
+    if (last != null &&
+        Geolocator.distanceBetween(
+              last.latitude,
+              last.longitude,
+              target.latitude,
+              target.longitude,
+            ) <
+            5) {
+      return;
+    }
+    setState(() => _pinPosition = target);
+    _lastResolved = target;
+    await _reverseGeocode(target);
   }
 
   @override
@@ -161,8 +326,11 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
   void _onSearchChanged(String value) {
     _searchDebounce?.cancel();
     final query = value.trim();
-    if (query.length < 3) {
-      setState(() => _suggestions = const []);
+    if (query.length < 2) {
+      setState(() {
+        _suggestions = const [];
+        _noSuggestions = false;
+      });
       return;
     }
 
@@ -178,9 +346,8 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
         '/maps/place-autocomplete',
         queryParameters: {
           'query': query,
-          if (_pinPosition != null)
-            'location_bias':
-                '${_pinPosition!.latitude},${_pinPosition!.longitude}',
+          if (_pinPosition ?? _mapCtl?.cameraPosition?.target case final bias?)
+            'location_bias': '${bias.latitude},${bias.longitude}',
         },
       );
       final suggestions = _dataList(response)
@@ -188,7 +355,10 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
           .where((s) => !s.placeId.startsWith('mock_place_'))
           .toList();
       if (mounted) {
-        setState(() => _suggestions = suggestions);
+        setState(() {
+          _suggestions = suggestions;
+          _noSuggestions = suggestions.isEmpty;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -205,6 +375,7 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
     FocusScope.of(context).unfocus();
     setState(() {
       _suggestions = const [];
+      _noSuggestions = false;
       _searchController.text = suggestion.description;
       _isLoading = true;
     });
@@ -216,10 +387,14 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
       bool needsReverseGeocode;
 
       if (suggestion.lat != null && suggestion.lng != null) {
-        // Ola-sourced — already carries everything, no second call needed.
+        // Ola-sourced — carries coordinates directly, but Ola's autocomplete
+        // predictions don't include a postal_code/city/state breakdown (only
+        // its geocode/reverse-geocode responses do), so reverse-geocode the
+        // picked point below to fill those in whenever they're missing.
         lat = suggestion.lat!;
         lng = suggestion.lng!;
-        _formattedAddress = suggestion.formattedAddress ?? suggestion.description;
+        _formattedAddress =
+            suggestion.formattedAddress ?? suggestion.description;
         postalCode = suggestion.postalCode;
         if (suggestion.city?.isNotEmpty == true) {
           _selectedCity = suggestion.city!;
@@ -229,7 +404,7 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
           _selectedState = suggestion.state!;
           _stateController.text = suggestion.state!;
         }
-        needsReverseGeocode = false;
+        needsReverseGeocode = postalCode == null || postalCode.isEmpty;
       } else {
         // Google-sourced fallback — needs the details + reverse-geocode
         // round trips, since autocomplete alone doesn't carry coordinates.
@@ -253,8 +428,9 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
         _pincodeController.text = postalCode;
       }
 
-      final next = ll.LatLng(lat, lng);
-      await _setPin(next, zoom: 17);
+      final next = ml.LatLng(lat, lng);
+      _lastResolved = next;
+      await _setPin(next, zoom: _pinZoom);
       if (needsReverseGeocode) {
         await _reverseGeocode(next);
       }
@@ -317,8 +493,10 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
       // up", so this tries a cached fix, then low- then medium-accuracy
       // live fixes before giving up.
       final position = await getResilientCurrentPosition();
-      final next = ll.LatLng(position.latitude, position.longitude);
-      await _setPin(next, zoom: 17);
+      final next = ml.LatLng(position.latitude, position.longitude);
+      if (mounted) setState(() => _locationGranted = true);
+      _lastResolved = next;
+      await _setPin(next, zoom: _pinZoom);
       await _reverseGeocode(next);
     } catch (e) {
       if (mounted) {
@@ -331,9 +509,9 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
     }
   }
 
-  Future<void> _setPin(ll.LatLng position, {double? zoom}) async {
+  Future<void> _setPin(ml.LatLng position, {double zoom = _pinZoom}) async {
     setState(() => _pinPosition = position);
-    _mapController.move(position, zoom ?? 16);
+    await _flyTo(position, zoom: zoom);
   }
 
   /// Reverse-geocodes via Ola Maps first (dashboard-configured; carries a
@@ -342,14 +520,15 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
   /// geocoder if Ola isn't configured/enabled or the call fails — so this
   /// never hard-breaks the address flow on a build where no one has set
   /// up an Ola Maps key in the dashboard yet.
-  Future<void> _reverseGeocode(ll.LatLng position) async {
-    if (await _reverseGeocodeViaOla(position)) return;
-    await _reverseGeocodeViaOsGeocoder(position);
+  Future<void> _reverseGeocode(ml.LatLng position) async {
+    final requestId = ++_resolveRequestId;
+    if (await _reverseGeocodeViaOla(position, requestId)) return;
+    await _reverseGeocodeViaOsGeocoder(position, requestId);
   }
 
   /// Returns true if Ola Maps successfully resolved and applied an
   /// address, false to signal the caller should fall back.
-  Future<bool> _reverseGeocodeViaOla(ll.LatLng position) async {
+  Future<bool> _reverseGeocodeViaOla(ml.LatLng position, int requestId) async {
     try {
       final response = await _dio.get<dynamic>(
         '/maps/ola/reverse-geocode',
@@ -357,6 +536,8 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
       );
       final data = _dataMap(response);
       if (data.isEmpty || !mounted) return false;
+      // A newer pin move superseded this lookup — drop it.
+      if (requestId != _resolveRequestId) return true;
 
       final resolvedCity = (data['city'] as String?)?.trim() ?? '';
       final resolvedState = (data['state'] as String?)?.trim() ?? '';
@@ -374,30 +555,33 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
           _selectedState = resolvedState;
           _stateController.text = resolvedState;
         }
-        if (_pincodeController.text.trim().isEmpty &&
-            postalCode?.isNotEmpty == true) {
+        if (postalCode?.isNotEmpty == true) {
           _pincodeController.text = postalCode!;
         }
-        if (_formattedAddress.isEmpty && formatted.isNotEmpty) {
+        if (formatted.isNotEmpty) {
           _formattedAddress = formatted;
         }
+        final landmark = (data['landmark'] as String?)?.trim() ?? '';
+        if (landmark.isNotEmpty) _landmarkController.text = landmark;
       });
       return true;
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[ReverseGeocode] Ola Maps failed, falling back: ${friendlyError(e)}');
+        debugPrint(
+            '[ReverseGeocode] Ola Maps failed, falling back: ${friendlyError(e)}');
       }
       return false;
     }
   }
 
-  Future<void> _reverseGeocodeViaOsGeocoder(ll.LatLng position) async {
+  Future<void> _reverseGeocodeViaOsGeocoder(
+      ml.LatLng position, int requestId) async {
     try {
       final places = await geocoding.placemarkFromCoordinates(
         position.latitude,
         position.longitude,
       );
-      if (places.isEmpty || !mounted) return;
+      if (places.isEmpty || !mounted || requestId != _resolveRequestId) return;
 
       final place = places.first;
 
@@ -421,10 +605,10 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
       // Android/iOS geocoders differ in which fields they populate for Indian
       // cities, so we try all meaningful fields before giving up.
       final String resolvedCity = _firstNonEmpty([
-        place.locality,           // e.g. "Hyderabad", "Bengaluru"
+        place.locality, // e.g. "Hyderabad", "Bengaluru"
         place.subAdministrativeArea, // e.g. "Hyderabad", "Bangalore Urban"
         place.administrativeArea, // e.g. "Telangana", "Karnataka" (last resort)
-        place.subLocality,        // e.g. "LB Nagar"
+        place.subLocality, // e.g. "LB Nagar"
       ]);
 
       final String resolvedState = _firstNonEmpty([
@@ -449,14 +633,13 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
         _cityController.text = resolvedCity;
         _stateController.text = resolvedState;
 
-        // Only auto-fill pincode if the user hasn't typed one yet.
-        if (_pincodeController.text.trim().isEmpty &&
-            place.postalCode?.isNotEmpty == true) {
+        // The pin moved, so the pincode and address must follow it.
+        if (place.postalCode?.isNotEmpty == true) {
           _pincodeController.text = place.postalCode!;
         }
 
         // Build a human-readable formatted address from all available parts.
-        if (_formattedAddress.isEmpty) {
+        {
           _formattedAddress = [
             place.name,
             place.street,
@@ -488,7 +671,7 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
   /// Validates the selected coordinates and pincode against the backend.
   /// Returns null if serviceable, or a human-readable error message explaining
   /// exactly why the address was rejected.
-  Future<String?> _validateBackendServiceability(ll.LatLng position) async {
+  Future<String?> _validateBackendServiceability(ml.LatLng position) async {
     final pincode = _pincodeController.text.trim();
 
     // ── Log what we're about to send ──────────────────────────────────────────
@@ -771,6 +954,13 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
   void _onConfirmLocation() {
     final pin = _pinPosition;
     if (pin == null) return;
+    if (_isFormOnly) {
+      // Came from the details form (edit / change location) — fields were
+      // already refreshed from the pin, so just go back to the form.
+      FocusScope.of(context).unfocus();
+      setState(() => _showMap = false);
+      return;
+    }
     context.push(
       AppRoutes.mapAddress,
       extra: (
@@ -817,6 +1007,7 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
       onCityChanged: (v) => setState(() => _selectedCity = v),
       onStateChanged: (v) => setState(() => _selectedState = v),
       onSave: _onSaveAddress,
+      onChangeLocation: () => setState(() => _showMap = true),
     );
 
     return Scaffold(
@@ -845,7 +1036,7 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
         elevation: 0,
       ),
       body: SafeArea(
-        child: _isFormOnly
+        child: !_showMap
             // Coordinates are already known — skip the map step entirely
             // and go straight to the form, matching a saved address's
             // "Edit" flow (and the checkout flat-number-completion guard).
@@ -855,210 +1046,227 @@ class _MapAddressPageState extends ConsumerState<MapAddressPage> {
                   Expanded(
                     child: Stack(
                       children: [
-                  FlutterMap(
-                    mapController: _mapController,
-                    options: MapOptions(
-                      initialCenter: _initialCenter,
-                      initialZoom: _initialZoom,
-                      // Tap or long-press to (re)place the pin — flutter_map
-                      // has no built-in draggable marker like GoogleMap did,
-                      // so re-tapping is how the pin gets repositioned now.
-                      onTap: (tapPosition, point) async {
-                        await _setPin(point);
-                        await _reverseGeocode(point);
-                      },
-                      onLongPress: (tapPosition, point) async {
-                        await _setPin(point);
-                        await _reverseGeocode(point);
-                      },
-                    ),
-                    children: [
-                      TileLayer(
-                        urlTemplate:
-                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        userAgentPackageName: 'com.lndry.app',
-                        maxZoom: 19,
-                      ),
-                      if (_pinPosition != null)
-                        MarkerLayer(
-                          markers: [
-                            Marker(
-                              point: _pinPosition!,
-                              width: 40.r,
-                              height: 40.r,
-                              // The pin icon's visual point sits at the
-                              // bottom of its box, so anchor there — not
-                              // flutter_map's Alignment.center default —
-                              // or the tip would float above the real spot.
-                              alignment: Alignment.bottomCenter,
+                        if (_styleString == null)
+                          const Center(child: CircularProgressIndicator())
+                        else
+                          ml.MapLibreMap(
+                            styleString: _styleString!,
+                            initialCameraPosition: ml.CameraPosition(
+                              target: _pinPosition ?? _initialCenter,
+                              zoom: _pinPosition != null
+                                  ? _pinZoom
+                                  : _initialZoom,
+                              tilt: _pinPosition != null && _is3d ? _tilt3d : 0,
+                            ),
+                            trackCameraPosition: true,
+                            compassEnabled: false,
+                            myLocationEnabled: _locationGranted,
+                            onMapCreated: (c) => _mapCtl = c,
+                            onStyleLoadedCallback: () =>
+                                unawaited(_onStyleLoaded()),
+                            onCameraIdle: () => unawaited(_onCameraIdle()),
+                          ),
+                        // Fixed centre pin — the tip sits exactly on the camera
+                        // target, so dragging the map moves the selection.
+                        IgnorePointer(
+                          child: Center(
+                            child: Transform.translate(
+                              offset: Offset(0, -20.r),
                               child: Icon(
                                 Icons.location_on_rounded,
                                 color: AppColors.primary,
                                 size: 40.r,
                               ),
                             ),
-                          ],
+                          ),
                         ),
-                    ],
-                  ),
-                  Positioned(
-                    left: 16.w,
-                    right: 16.w,
-                    top: 16.h,
-                    child: Column(
-                      children: [
-                        Material(
-                          elevation: 6,
-                          borderRadius:
-                              BorderRadius.circular(AppRadius.input.r),
-                          color: isDark
-                              ? AppColors.darkSurface
-                              : AppColors.surface,
-                          child: TextField(
-                            controller: _searchController,
-                            onChanged: _onSearchChanged,
-                            textInputAction: TextInputAction.search,
-                            decoration: InputDecoration(
-                              hintText: 'Search address, building or area',
-                              prefixIcon: const Icon(AppIcons.search),
-                              suffixIcon: _isSearching
-                                  ? Padding(
-                                      padding: EdgeInsets.all(14.r),
-                                      child: SizedBox(
-                                        width: 16.r,
-                                        height: 16.r,
-                                        child: const CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      ),
-                                    )
-                                  : IconButton(
-                                      icon: const Icon(AppIcons.close),
-                                      onPressed: () {
-                                        _searchController.clear();
-                                        setState(
-                                          () => _suggestions = const [],
-                                        );
-                                      },
-                                    ),
-                              border: OutlineInputBorder(
+                        Positioned(
+                          left: 16.w,
+                          right: 16.w,
+                          top: 16.h,
+                          child: Column(
+                            children: [
+                              Material(
+                                elevation: 6,
                                 borderRadius:
                                     BorderRadius.circular(AppRadius.input.r),
-                                borderSide: BorderSide.none,
+                                color: isDark
+                                    ? AppColors.darkSurface
+                                    : AppColors.surface,
+                                child: TextField(
+                                  controller: _searchController,
+                                  onChanged: _onSearchChanged,
+                                  textInputAction: TextInputAction.search,
+                                  decoration: InputDecoration(
+                                    hintText:
+                                        'Search address, building or area',
+                                    prefixIcon: const Icon(AppIcons.search),
+                                    suffixIcon: _isSearching
+                                        ? Padding(
+                                            padding: EdgeInsets.all(14.r),
+                                            child: SizedBox(
+                                              width: 16.r,
+                                              height: 16.r,
+                                              child:
+                                                  const CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            ),
+                                          )
+                                        : IconButton(
+                                            icon: const Icon(AppIcons.close),
+                                            onPressed: () {
+                                              _searchController.clear();
+                                              setState(
+                                                () {
+                                                  _suggestions = const [];
+                                                  _noSuggestions = false;
+                                                },
+                                              );
+                                            },
+                                          ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          AppRadius.input.r),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    filled: true,
+                                    fillColor: isDark
+                                        ? AppColors.darkSurface
+                                        : AppColors.surface,
+                                  ),
+                                ),
                               ),
-                              filled: true,
-                              fillColor: isDark
-                                  ? AppColors.darkSurface
-                                  : AppColors.surface,
-                            ),
+                              if (_noSuggestions &&
+                                  !_isSearching &&
+                                  _suggestions.isEmpty)
+                                Container(
+                                  width: double.infinity,
+                                  margin: EdgeInsets.only(top: 8.h),
+                                  padding: EdgeInsets.all(14.r),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? AppColors.darkSurface
+                                        : AppColors.surface,
+                                    borderRadius:
+                                        BorderRadius.circular(AppRadius.card.r),
+                                    boxShadow: AppElevation.medium,
+                                  ),
+                                  child: Text(
+                                    'No matching places. Try a nearby area or '
+                                    'landmark, or drag the map to place the pin.',
+                                    style: AppTypography.bodySmall,
+                                  ),
+                                ),
+                              if (_suggestions.isNotEmpty)
+                                Container(
+                                  margin: EdgeInsets.only(top: 8.h),
+                                  constraints: BoxConstraints(maxHeight: 220.h),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? AppColors.darkSurface
+                                        : AppColors.surface,
+                                    borderRadius:
+                                        BorderRadius.circular(AppRadius.card.r),
+                                    boxShadow: AppElevation.medium,
+                                  ),
+                                  child: ListView.separated(
+                                    padding: EdgeInsets.zero,
+                                    shrinkWrap: true,
+                                    itemCount: _suggestions.length,
+                                    separatorBuilder: (_, __) =>
+                                        const Divider(height: 1),
+                                    itemBuilder: (context, index) {
+                                      final suggestion = _suggestions[index];
+                                      return ListTile(
+                                        leading: const Icon(
+                                            AppIcons.locationOutlined),
+                                        title: Text(
+                                          suggestion.description,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: AppTypography.bodyMedium,
+                                        ),
+                                        onTap: () =>
+                                            _selectSuggestion(suggestion),
+                                      );
+                                    },
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
-                        if (_suggestions.isNotEmpty)
-                          Container(
-                            margin: EdgeInsets.only(top: 8.h),
-                            constraints: BoxConstraints(maxHeight: 220.h),
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? AppColors.darkSurface
-                                  : AppColors.surface,
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.card.r),
-                              boxShadow: AppElevation.medium,
-                            ),
-                            child: ListView.separated(
-                              padding: EdgeInsets.zero,
-                              shrinkWrap: true,
-                              itemCount: _suggestions.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final suggestion = _suggestions[index];
-                                return ListTile(
-                                  leading:
-                                      const Icon(AppIcons.locationOutlined),
-                                  title: Text(
-                                    suggestion.description,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: AppTypography.bodyMedium,
-                                  ),
-                                  onTap: () => _selectSuggestion(suggestion),
-                                );
-                              },
-                            ),
+                        Positioned(
+                          right: 16.w,
+                          bottom: 16.h,
+                          child: FloatingActionButton.small(
+                            heroTag: 'current_location',
+                            onPressed: _isFetchingLocation
+                                ? null
+                                : _moveToCurrentLocation,
+                            backgroundColor: isDark
+                                ? AppColors.darkSurface
+                                : AppColors.surface,
+                            foregroundColor: AppColors.primary,
+                            child: _isFetchingLocation
+                                ? SizedBox(
+                                    width: 18.r,
+                                    height: 18.r,
+                                    child: const CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(AppIcons.location),
                           ),
+                        ),
                       ],
                     ),
                   ),
-                  Positioned(
-                    right: 16.w,
-                    bottom: 16.h,
-                    child: FloatingActionButton.small(
-                      heroTag: 'current_location',
-                      onPressed:
-                          _isFetchingLocation ? null : _moveToCurrentLocation,
-                      backgroundColor:
-                          isDark ? AppColors.darkSurface : AppColors.surface,
-                      foregroundColor: AppColors.primary,
-                      child: _isFetchingLocation
-                          ? SizedBox(
-                              width: 18.r,
-                              height: 18.r,
-                              child: const CircularProgressIndicator(
-                                strokeWidth: 2,
+                  // Just a single "Confirm Location" action here — the map step
+                  // never shows the address form itself (that was the source of
+                  // the keyboard-squeezes-the-map bug: a tall form sharing this
+                  // screen with the map). Confirming pushes a fresh, map-free
+                  // instance of this same page with the resolved location
+                  // prefilled — see _onConfirmLocation.
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.fromLTRB(
+                      AppSpacing.pagePaddingH.w,
+                      12.h,
+                      AppSpacing.pagePaddingH.w,
+                      12.h,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkSurface : AppColors.surface,
+                      boxShadow: AppElevation.medium,
+                    ),
+                    child: SafeArea(
+                      top: false,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (_formattedAddress.isNotEmpty) ...[
+                            Text(
+                              _formattedAddress,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.bodySmall.copyWith(
+                                color: AppColors.textSecondary,
                               ),
-                            )
-                          : const Icon(AppIcons.location),
+                            ),
+                            Gap(10.h),
+                          ],
+                          AppButton(
+                            label: 'Confirm Location',
+                            isDisabled: _pinPosition == null,
+                            onPressed: _onConfirmLocation,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
               ),
-            ),
-            // Just a single "Confirm Location" action here — the map step
-            // never shows the address form itself (that was the source of
-            // the keyboard-squeezes-the-map bug: a tall form sharing this
-            // screen with the map). Confirming pushes a fresh, map-free
-            // instance of this same page with the resolved location
-            // prefilled — see _onConfirmLocation.
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.fromLTRB(
-                AppSpacing.pagePaddingH.w,
-                12.h,
-                AppSpacing.pagePaddingH.w,
-                12.h,
-              ),
-              decoration: BoxDecoration(
-                color: isDark ? AppColors.darkSurface : AppColors.surface,
-                boxShadow: AppElevation.medium,
-              ),
-              child: SafeArea(
-                top: false,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (_formattedAddress.isNotEmpty) ...[
-                      Text(
-                        _formattedAddress,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.bodySmall.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      Gap(10.h),
-                    ],
-                    AppButton(
-                      label: 'Confirm Location',
-                      isDisabled: _pinPosition == null,
-                      onPressed: _onConfirmLocation,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1082,8 +1290,10 @@ class _AddressForm extends StatelessWidget {
     required this.onCityChanged,
     required this.onStateChanged,
     required this.onSave,
+    required this.onChangeLocation,
   });
 
+  final VoidCallback onChangeLocation;
   final TextEditingController addressLineController;
   final TextEditingController pincodeController;
   final TextEditingController landmarkController;
@@ -1123,8 +1333,7 @@ class _AddressForm extends StatelessWidget {
           children: [
             if (showMissingFlatBanner) ...[
               Container(
-                padding:
-                    EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
+                padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
                 decoration: BoxDecoration(
                   color: AppColors.primaryContainer,
                   borderRadius: BorderRadius.circular(AppRadius.lg.r),
@@ -1179,7 +1388,15 @@ class _AddressForm extends StatelessWidget {
                 ),
               ),
             ],
-            const Gap(16),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: onChangeLocation,
+                icon: const Icon(Icons.map_outlined, size: 18),
+                label: const Text('Change location on map'),
+              ),
+            ),
+            const Gap(8),
             AppTextField(
               label: 'Flat / Building / House No.',
               hint: 'Enter your flat/house details',
@@ -1344,11 +1561,14 @@ class _PlaceSuggestion {
   final String description;
   final String placeId;
 
-  /// Present only for Ola-sourced suggestions, whose geocode response
-  /// already carries everything a details lookup would give — when set,
-  /// [_MapAddressPageState._selectSuggestion] uses these directly instead
-  /// of round-tripping through `/place-details` (which also can't safely
-  /// carry a long encoded id in its URL — see maps.routes.js).
+  /// Present only for Ola-sourced suggestions, whose autocomplete response
+  /// carries coordinates directly — when set,
+  /// [_MapAddressPageState._selectSuggestion] uses these instead of
+  /// round-tripping through `/place-details` (which Google-sourced
+  /// suggestions still need, since Google's autocomplete alone doesn't
+  /// carry coordinates). [postalCode]/[city]/[state] are usually null here
+  /// (Ola's autocomplete doesn't return an address breakdown), in which
+  /// case the picked point is reverse-geocoded after selection instead.
   final double? lat;
   final double? lng;
   final String? formattedAddress;

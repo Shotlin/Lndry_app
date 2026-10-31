@@ -55,8 +55,8 @@ dependencies:
   # Used only for requestService() — the native in-app "Turn on Location
   # Accuracy" dialog on Android that geolocator has no equivalent for.
   location: ^6.0.2
-  flutter_map: ^7.0.2
-  latlong2: ^0.9.1
+  # Ola Maps vector (3D-capable) rendering — same stack as the Bakaloo app.
+  maplibre_gl: ^0.27.0
   razorpay_flutter: ^1.4.0
   speech_to_text: ^7.0.0
 
